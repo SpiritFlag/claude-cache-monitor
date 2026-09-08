@@ -1,0 +1,13 @@
+# 수집 데이터 · 반출 아카이브
+data/
+
+# generated / local
+img/raw/
+tools/
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# local
+.env.local
