@@ -50,7 +50,7 @@ chmod +x start-monitor.sh
 node server.js [--dir <projectsDir>] [--port <port>]
 ```
 
-원격 서버에 띄우고 SSH로 보는 방법, 캐시가 덜 깨지게 하는 설정은 [docs/guide.md](docs/guide.md)에 있습니다.
+원격 서버에 띄우는 방법, Windows에서 콘솔 창 없이 돌리는 방법, 캐시가 덜 깨지게 하는 설정은 [docs/guide.md](docs/guide.md)에 있습니다.
 
 ## 구조
 
@@ -70,7 +70,7 @@ node server.js [--dir <projectsDir>] [--port <port>]
 ## 더 보기
 
 - [docs/design.md](docs/design.md) — 수치를 어떻게 뽑고 어떻게 읽는가
-- [docs/guide.md](docs/guide.md) — 원격 서버 설치, 캐시 깨짐 줄이는 설정
+- [docs/guide.md](docs/guide.md) — 원격 서버 설치, 창 없이 띄우기, 캐시 깨짐 줄이는 설정
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 이슈 · 브랜치 · 사이클
 - [Releases](https://github.com/SpiritFlag/claude-cache-monitor/releases) — 버전별 변경 내역
 - 라이선스는 [MIT](LICENSE)입니다. 다시 적자면 이 프로그램은 Anthropic과 아무 관계가 없는 비공식 도구입니다.
