@@ -312,7 +312,7 @@ function renderMain() {
 }
 
 const COMP = [
-  ['sys', '시스템+툴정의+CLAUDE.md', '#5b6270'], ['summary', '압축 요약', '#ffc857'],
+  ['sys', '시스템', '#5b6270'], ['summary', '압축 요약', '#ffc857'],
   ['user', '내 프롬프트', '#3ddc84'], ['assistant', '어시스턴트 텍스트', '#6ea8fe'],
   ['toolInput', '툴 호출 입력', '#9ad0ff'], ['toolResult', '툴 결과', '#ff9f43'],
   ['reminders', '시스템 리마인더/훅', '#b58cff'], ['images', '이미지', '#ff5c5c'],
@@ -336,9 +336,8 @@ function ctxLegend(s) {
   const total = COMP.reduce((n, [k]) => n + (c[k] || 0), 0) || 1;
   const rows = COMP.map(([k, label, col]) => {
     const v = c[k] || 0;
-    const lbl = k === 'sys' ? `${label} · ${SYS_SRC[s.sysSource] || '추정'}` : label;
     return `<div class="cl-row${v ? '' : ' zero'}"><b style="background:${col}"></b>`
-      + `<span class="cl-lb">${lbl}</span><em class="cl-tk">${fmtTok(v)}</em>`
+      + `<span class="cl-lb">${label}</span><em class="cl-tk">${fmtTok(v)}</em>`
       + `<em class="cl-pc">${Math.round(100 * v / total)}%</em></div>`;
   }).join('');
   return `<div class="complegend">${rows}</div>`;
@@ -355,18 +354,13 @@ const HIT_PX = 8;                    // 프롬프트 툴팁 히트 반경 (R-5: 
 let chartMarks = { prompts: [] };    // drawChart가 남기는 [{x, y, t}]
 const fmtMin = ts => { const d = new Date(ts), p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };  // FR-9의 yyyy-mm-dd hh:mm
-// D-6. sysSource 8단계를 화면 문구 두 갈래로 압축: 실측(콜드) · 실측(웜) · 추정
-const SYS_SRC = {
-  'cold-self': '실측(콜드)', 'cold-key': '실측(콜드)', 'cold-project': '실측(콜드)', 'cold-folder': '실측(콜드)',
-  'warm-key': '실측(웜)', 'warm-project': '실측(웜)', 'warm-folder': '실측(웜)',
-  'default': '추정',
-};
 // 원인 색의 단일 출처 (D-8 · D-9). free: 손실로 세지 않는 원인(server.js FREE_CAUSES와 같은 집합)
 const CAUSE_GROUPS = [
   { key: 'ttl',     label: '60분 넘기기',        color: '#ff5c5c', causes: ['ttl_expiry'] },
   { key: 'resume',  label: '세션 재개',          color: '#2ec5c0', causes: ['session_resume'] },
   { key: 'model',   label: '모델 바꾸기',        color: '#ff9f43', causes: ['model_switch'] },
   { key: 'effort',  label: 'effort 바꾸기',      color: '#ffc857', causes: ['effort_change'] },
+  { key: 'bridge',  label: '브릿지 재접속',      color: '#5cd67d', causes: ['bridge_reconnect'] },
   { key: 'tools',   label: '툴 목록 바꾸기',      color: '#ff7ab6', causes: ['deferred_tools_delta','mcp_instructions_delta','agent_listing_delta','skill_listing','invoked_skills','nested_memory'] },
   { key: 'unknown', label: '원인 미상',          color: '#b58cff', causes: ['unexplained','date_change','auto_mode','auto_mode_exit'] },
   { key: 'compact', label: '압축',               color: '#6ea8fe', causes: ['compact'], free: true },

@@ -23,23 +23,6 @@ const PRICE = {
 const price = (m) => PRICE[m] || { in: 5, out: 25, read: 0.1 };
 const PREFIX_EVENTS = new Set(['deferred_tools_delta', 'mcp_instructions_delta', 'agent_listing_delta', 'skill_listing', 'date_change', 'auto_mode', 'auto_mode_exit', 'nested_memory', 'invoked_skills']);
 const RESUME_RE = /continue from where you left off/i;
-// D-2. 서버 이름 정규화: instructions 쪽 "claude.ai Figma"와 tool 이름 쪽 "claude_ai_Figma"를 같은 키로 합친다
-const normName = n => String(n).replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-// deferred_tools_delta.addedNames의 "mcp__<서버>__<툴>"에서 서버 이름만 뽑는다
-function serverNamesFromToolNames(names) {
-  const out = [];
-  for (const n of names || []) {
-    const parts = String(n).split('__');
-    if (parts.length >= 3 && parts[0] === 'mcp') out.push(parts.slice(1, -1).join('__'));
-  }
-  return out;
-}
-// D-4a. 프로젝트 키: ROOT 상대 경로의 첫 디렉터리 세그먼트. 평평하면 ''
-function projectKey(fp) {
-  const rel = path.relative(ROOT, path.dirname(fp)).replace(/\\/g, '/');
-  if (!rel || rel === '.' || rel.startsWith('..')) return '';
-  return rel.split('/')[0];
-}
 // 실측 근거(v0.1.2 do §3, 2026-08 아카이브 한 달): breakpoint_shift 5건의 rewrite 최대 18,708 · |rewrite-shrink| 최대 2,753,
 // effort_change 135건 중 124건이 |rewrite-shrink| ≤ 3,000이고 rewrite 최소는 25,140.
 // 두 원인을 실제로 가르는 것은 MAX_REWRITE 하나이고 여유는 위 5,140 · 아래 1,292다. 표본 5건이라 값은 유지한다.
@@ -63,8 +46,7 @@ function session(id) {
       tok: { in: 0, cw1h: 0, cw5m: 0, cwOther: 0, cr: 0, out: 0 }, modelCalls: {},
       activeMs: 0, days: {}, lastA: 0, promptMarks: [],
       sysTokens: 0, sysSet: false, comp: null, toolTop: [], compScale: 0,
-      coldStartCw: 0, warmStartTotal: 0, firstTotal: 0, startRegrowth: null, compactions: [], compactSamples: [], byCause: {},
-      projKey: '', cfgKey: '', sysSource: 'default',
+      firstTotal: 0, startRegrowth: null, compactions: [], compactSamples: [], byCause: {},
       saved: 0, commits: 0, lateCalls: 0, nightCalls: 0, streak: 0, bestStreak: 0,
       lastAvoidableBreakTs: 0, pendingAsk: false, fullFlag: false,
     };
@@ -105,64 +87,31 @@ const OLD_CALLS = 40;   // tool results older than this many calls count as stal
 const REGROWTH_CALLS = 15; // how many calls after a (re)start we measure regrowth over
 // Calibration: measured from the watched folder itself (medians). Defaults are used only when the folder has no sample, and are flagged in the UI.
 const DEFAULTS = { sys: 45000, summary: 20000, regrowth: 80000 };
-// D-5. 실측 표본을 담는 3층 버킷. byKey/byProj는 사다리용, folder는 기존 CAL.sys 등 폴더 중앙값의 재료.
+// D-5. 실측 표본을 담는 버킷. folder는 폴더 중앙값의 재료.
 const CAL = {
   sys: DEFAULTS.sys, summary: DEFAULTS.summary, regrowth: DEFAULTS.regrowth,
-  n: { sys: 0, summary: 0, regrowth: 0, rewrite: 0, extra: 0, postCtx: 0, warmSys: 0 },
-  byKey: new Map(), byProj: new Map(), folder: { cold: [], warm: [], summary: [], regrowth: [], rewrite: [], extra: [], postCtx: [] },
-  cfgKeys: 0, noCfgKey: 0,
+  n: { sys: 0, summary: 0, regrowth: 0, rewrite: 0, extra: 0, postCtx: 0 },
+  folder: { first: [], summary: [], regrowth: [], rewrite: [], extra: [], postCtx: [] },
   // D-9. 압축 실측 재료: 표시 전용, 표본이 없으면 기본값 없이 null(화면이 "샘플 없음"으로 그린다)
-  rewrite: null, extra: null, postCtx: null, warmSys: null,
+  rewrite: null, extra: null, postCtx: null,
 };
 const median = a => { if (!a.length) return null; const b = [...a].sort((x, y) => x - y); return b[b.length >> 1]; };
-// byKey · byProj는 {sid, v} 표본을 담아 resolveSys가 자기 자신의 표본을 빼고 median을 낼 수 있게 한다(자기 자신뿐이면
-// 그 칸은 못 맞은 것으로 보고 다음 칸으로 내려간다). folder는 기존 CAL.sys와 같은 값을 배열로 유지한다(자기 제외 없음).
-const medianExcl = (entries, sid) => median(entries.filter(e => e.sid !== sid).map(e => e.v));
-const keyOf = (projKey, cfgKey) => JSON.stringify([projKey, cfgKey]);
 function calibrate() {
-  const byKey = new Map(), byProj = new Map();
-  const folder = { cold: [], warm: [], summary: [], regrowth: [], rewrite: [], extra: [], postCtx: [] };
-  const bucket = (map, k) => { let b = map.get(k); if (!b) { b = { cold: [], warm: [] }; map.set(k, b); } return b; };
-  let noKey = 0;
+  const folder = { first: [], summary: [], regrowth: [], rewrite: [], extra: [], postCtx: [] };
   for (const s of sessions.values()) {
     if (!s.calls) continue;
-    if (!s.cfgKey) noKey++; // cfgKey를 못 만든 세션은 sys 보정(콜드/웜 표본)에서만 뺀다 — 압축 실측은 구성과 무관해 그대로 쓴다
-    if (s.cfgKey) {
-      const bk = bucket(byKey, keyOf(s.projKey, s.cfgKey)), bp = bucket(byProj, s.projKey);
-      if (s.coldStartCw) { bk.cold.push({ sid: s.id, v: s.coldStartCw }); bp.cold.push({ sid: s.id, v: s.coldStartCw }); folder.cold.push(s.coldStartCw); }
-      if (s.warmStartTotal) { bk.warm.push({ sid: s.id, v: s.warmStartTotal }); bp.warm.push({ sid: s.id, v: s.warmStartTotal }); folder.warm.push(s.warmStartTotal); }
-    }
+    if (s.firstTotal) folder.first.push(s.firstTotal);
     for (const c of s.compactions) { if (c.summary != null) folder.summary.push(c.summary); if (c.regrowth != null) folder.regrowth.push(c.regrowth); }
     if (s.startRegrowth != null) folder.regrowth.push(s.startRegrowth);
     for (const cs of s.compactSamples) { folder.rewrite.push(cs.rewrite); folder.extra.push(cs.extra); folder.postCtx.push(cs.ctx); }
   }
-  CAL.byKey = byKey; CAL.byProj = byProj; CAL.folder = folder;
-  CAL.cfgKeys = byKey.size; CAL.noCfgKey = noKey;
-  const m = median(folder.cold); CAL.sys = m != null ? m : DEFAULTS.sys; CAL.n.sys = folder.cold.length;
+  CAL.folder = folder;
+  const m = median(folder.first); CAL.sys = m != null ? m : DEFAULTS.sys; CAL.n.sys = folder.first.length;
   const ms = median(folder.summary); CAL.summary = ms != null ? ms : DEFAULTS.summary; CAL.n.summary = folder.summary.length;
   const mr = median(folder.regrowth); CAL.regrowth = mr != null ? mr : DEFAULTS.regrowth; CAL.n.regrowth = folder.regrowth.length;
   CAL.rewrite = median(folder.rewrite); CAL.n.rewrite = folder.rewrite.length;
   CAL.extra = median(folder.extra); CAL.n.extra = folder.extra.length;
   CAL.postCtx = median(folder.postCtx); CAL.n.postCtx = folder.postCtx.length;
-  CAL.warmSys = median(folder.warm); CAL.n.warmSys = folder.warm.length;
-}
-// D-6 · D-7. sys 8단계 사다리: cold-self -> cold-key -> warm-key -> cold-project -> warm-project -> cold-folder -> warm-folder -> default.
-// 최소 표본 n=1 (D-7). ctx 상한은 cold-self를 제외한 모든 칸에 적용된다. key / project 칸은 자기 자신의 표본을 빼고 봐야
-// "동료가 있어 더 구체적인 값을 안다"는 뜻이 산다. 안 빼면 표본이 하나뿐이던 세션도 항상 자기 key 칸에서 자기 값을 되받아
-// folder까지 내려갈 일이 없어져 사다리가 무의미해진다. folder는 그 반대로 기존 CAL.sys처럼 전체(자기 포함) 중앙값이다.
-function resolveSys(s, ctx) {
-  if (s.coldStartCw) return { sys: s.coldStartCw, source: 'cold-self' };
-  const cap = v => Math.min(v, ctx);
-  const bk = CAL.byKey.get(keyOf(s.projKey, s.cfgKey));
-  let m;
-  if (bk && (m = medianExcl(bk.cold, s.id)) != null) return { sys: cap(m), source: 'cold-key' };
-  if (bk && (m = medianExcl(bk.warm, s.id)) != null) return { sys: cap(m), source: 'warm-key' };
-  const bp = CAL.byProj.get(s.projKey);
-  if (bp && (m = medianExcl(bp.cold, s.id)) != null) return { sys: cap(m), source: 'cold-project' };
-  if (bp && (m = medianExcl(bp.warm, s.id)) != null) return { sys: cap(m), source: 'warm-project' };
-  if ((m = median(CAL.folder.cold)) != null) return { sys: cap(m), source: 'cold-folder' };
-  if ((m = median(CAL.folder.warm)) != null) return { sys: cap(m), source: 'warm-folder' };
-  return { sys: cap(DEFAULTS.sys), source: 'default' };
 }
 // D-8. 압축 비용 고정 상수. 폴더 · 사용자가 무엇이든 이 값이다(CAL 실측과 분리)
 const COMPACT = { summary: 20000, rewrite: 55000, regrowth: 60000 };
@@ -305,12 +254,19 @@ function handleRecord(f, d) {
       }
       return;
     case 'attachment':
-      if (d.attachment && PREFIX_EVENTS.has(d.attachment.type)) f.pending.push('prefix:' + d.attachment.type);
-      // D-1 · D-3. 첫 assistant 호출 전까지 MCP 구성 키 재료(서버 이름)를 모은다
-      if (!f.cfgFrozen && d.attachment) {
+      if (d.attachment && PREFIX_EVENTS.has(d.attachment.type)) {
         const a = d.attachment;
-        if (a.type === 'mcp_instructions_delta' && Array.isArray(a.addedNames)) for (const n of a.addedNames) f.cfgNames.add(normName(n));
-        else if (a.type === 'deferred_tools_delta' && Array.isArray(a.addedNames)) for (const sv of serverNamesFromToolNames(a.addedNames)) f.cfgNames.add(normName(sv));
+        const bridge = a.type === 'deferred_tools_delta' && Array.isArray(a.readdedNames) && a.readdedNames.length > 0;
+        f.pending.push('prefix:' + (bridge ? 'bridge_reconnect' : a.type));
+      }
+      if (!f.isSub && d.attachment && d.attachment.type === 'queued_command') {
+        const a = d.attachment;
+        if (a.commandMode === 'prompt' && a.origin && a.origin.kind === 'human') {
+          s.prompts++;
+          if (ts) s.promptMarks.push({ t: ts, a: activeAt(s, f, ts) });
+          f.comp.user += (Array.isArray(a.prompt) ? a.prompt : [])
+            .reduce((n, b) => n + (b && b.type === 'text' ? (b.text || '').length : 0), 0);
+        }
       }
       if (!f.isSub && d.attachment) { const a = d.attachment; const v = a.content != null ? a.content : (a.text != null ? a.text : ''); f.comp.reminders += typeof v === 'string' ? v.length : JSON.stringify(v).length; } // hook stdout is not shown to the model
       return;
@@ -320,9 +276,10 @@ function handleRecord(f, d) {
       if (!f.isSub) f.lastUserTs = ts;
       const c = d.message && d.message.content;
       if (d.isMeta && RESUME_RE.test(markerText(c))) f.pending.push('resume');
-      const human = !d.isMeta && !f.isSub && (typeof c === 'string' || (Array.isArray(c) && c.every(b => b.type === 'text' || b.type === 'image')));
+      const askAnswer = !f.isSub && Array.isArray(c) && c.some(b => b.type === 'tool_result' && f.askIds.has(b.tool_use_id));
+      const human = askAnswer || (!d.isMeta && !f.isSub && (typeof c === 'string' || (Array.isArray(c) && c.every(b => b.type === 'text' || b.type === 'image'))));
       if (human) { s.prompts++; if (ts) s.promptMarks.push({ t: ts, a: activeAt(s, f, ts) }); }
-      if (!f.isSub && Array.isArray(c) && c.some(b => b.type === 'tool_result')) s.pendingAsk = false;
+      if (askAnswer) s.pendingAsk = false;
       if (!f.isSub && c !== undefined) {
         if (d.isCompactSummary) { f.comp = newComp(); f.toolChars = {}; f.results = []; f.edited = {}; f.comp.summary += blockLen(c); }
         else if (typeof c === 'string') { f.comp[d.isMeta ? 'reminders' : 'user'] += c.length; }
@@ -336,11 +293,9 @@ function handleRecord(f, d) {
     }
     case 'assistant': {
       const m = d.message; if (!m || !m.usage || m.model === '<synthetic>') return;
-      // D-3. 그 파일의 첫 유효 assistant 호출에서 구성 키 수집을 동결한다
-      if (!f.cfgFrozen) f.cfgFrozen = true;
       if (Array.isArray(m.content)) for (const b of m.content) {
         if (b.type === 'tool_use') {
-          s.lastTool = b.name; if (b.name === 'AskUserQuestion') { s.asks++; if (!f.isSub) s.pendingAsk = true; }
+          s.lastTool = b.name; if (b.name === 'AskUserQuestion') { s.asks++; if (!f.isSub) s.pendingAsk = true; f.askIds.add(b.id); }
           if (!f.isSub) {
             const fp = b.input && b.input.file_path ? String(b.input.file_path).replace(/\\/g, '/').toLowerCase() : undefined;
             f.toolNames[b.id] = { name: b.name, path: fp }; f.comp.toolInput += JSON.stringify(b.input || {}).length;
@@ -399,14 +354,10 @@ function handleRecord(f, d) {
         if (brokeNow) s.streak = 0; else s.streak++; if (s.streak > s.bestStreak) s.bestStreak = s.streak;
         s.model = m.model; s.effort = d.effort || ''; s.skill = d.attributionSkill || ''; s.ctx = total; s.lastStop = m.stop_reason || '';
         s.lastCallStart = (f.lastUserTs && f.lastUserTs <= ts) ? f.lastUserTs : ts; s.lastCallEnd = ts;
-        // system prompt + tools + CLAUDE.md: measurable only on a true cold start (first call, no cache read); resumed sessions get the measured sys ladder (D-6)
         if (!s.sysSet) {
           s.sysSet = true;
-          s.projKey = projectKey(f.fp); s.cfgKey = [...f.cfgNames].sort().join('|'); // D-4 · D-1, 이 첫 호출 시점에 확정
-          const cold = s.calls === 1 && t.cr === 0;
-          if (cold) { s.coldStartCw = t.cw + t.in; s.sysTokens = s.coldStartCw; s.sysSource = 'cold-self'; }
-          else { s.warmStartTotal = total; const r = resolveSys(s, total); s.sysTokens = r.sys; s.sysSource = r.source; }
           s.firstTotal = total;
+          s.sysTokens = total;
         }
         if (s.calls === REGROWTH_CALLS + 1 && s.startRegrowth == null) s.startRegrowth = Math.max(0, total - s.firstTotal);
         if (events.includes('compact')) s.compactions.push({
@@ -430,9 +381,9 @@ function handleRecord(f, d) {
 
 function readFile(fp) {
   let f = files.get(fp);
-  if (!f) { f = { fp, offset: 0, rest: '', sessionId: null, isSub: /[\\/]subagents[\\/]/.test(fp), seen: new Set(), uuidSeen: new Set(), prev: null, pending: [], lastUserTs: 0, comp: newComp(), toolChars: {}, toolNames: {}, results: [], edited: {}, callIdx: 0, cfgNames: new Set(), cfgFrozen: false, compactPost: null, compactPre: null, compactDur: null, compactDropped: null, compactTrigger: null, grp: null, actPrevTs: 0 }; files.set(fp, f); }
+  if (!f) { f = { fp, offset: 0, rest: '', sessionId: null, isSub: /[\\/]subagents[\\/]/.test(fp), seen: new Set(), uuidSeen: new Set(), prev: null, pending: [], lastUserTs: 0, comp: newComp(), toolChars: {}, toolNames: {}, results: [], edited: {}, callIdx: 0, askIds: new Set(), compactPost: null, compactPre: null, compactDur: null, compactDropped: null, compactTrigger: null, grp: null, actPrevTs: 0 }; files.set(fp, f); }
   let st; try { st = fs.statSync(fp); } catch { return; }
-  if (st.size < f.offset) { f.offset = 0; f.rest = ''; f.seen = new Set(); f.uuidSeen = new Set(); f.prev = null; f.comp = newComp(); f.toolChars = {}; f.toolNames = {}; f.results = []; f.edited = {}; f.callIdx = 0; f.cfgNames = new Set(); f.cfgFrozen = false; f.compactPost = null; f.compactPre = null; f.compactDur = null; f.compactDropped = null; f.compactTrigger = null; f.grp = null; f.actPrevTs = 0; } // truncated/rewritten
+  if (st.size < f.offset) { f.offset = 0; f.rest = ''; f.seen = new Set(); f.uuidSeen = new Set(); f.prev = null; f.comp = newComp(); f.toolChars = {}; f.toolNames = {}; f.results = []; f.edited = {}; f.callIdx = 0; f.askIds = new Set(); f.compactPost = null; f.compactPre = null; f.compactDur = null; f.compactDropped = null; f.compactTrigger = null; f.grp = null; f.actPrevTs = 0; } // truncated/rewritten
   if (st.size === f.offset) return;
   const fd = fs.openSync(fp, 'r'); const len = st.size - f.offset; const buf = Buffer.alloc(len);
   fs.readSync(fd, buf, 0, len, f.offset); fs.closeSync(fd); f.offset = st.size;
@@ -479,7 +430,7 @@ function snapshot() {
     riskUsd, freshCost, costDelta: riskUsd - freshCost,
     compactSaved: cg.saved, compactMs: cg.ms, compactDrift: cg.drift,
     tok: s.tok, activeMs: s.activeMs,
-    comp: s.comp, toolTop: s.toolTop, compScale: s.compScale, advice: s.advice || null, sysTokens: s.sysTokens, sysSource: s.sysSource, cfgKey: s.cfgKey, projKey: s.projKey, byCause: s.byCause,
+    comp: s.comp, toolTop: s.toolTop, compScale: s.compScale, advice: s.advice || null, sysTokens: s.sysTokens, byCause: s.byCause,
     continueThreshold,
     saved: s.saved, commits: s.commits, lateCalls: s.lateCalls, nightCalls: s.nightCalls, streak: s.streak, bestStreak: s.bestStreak,
     charState: charState(s, now), // after TTL expiry: continuing beats a new session iff ctx < system floor + regrowth (price/horizon independent)
@@ -503,9 +454,6 @@ function onChange() { clearTimeout(debounce); debounce = setTimeout(() => { scan
 function recomputeAdvice() {
   for (const [fp, f] of files) {
     if (f.isSub || !f.prev || !f.sessionId) continue; const s = sessions.get(f.sessionId); if (!s || !s.calls) continue;
-    // D-6. 보정이 스캔마다 달라지므로 cold-self가 아닌 세션은 매번 사다리를 다시 탄다
-    const r = resolveSys(s, s.ctx); s.sysTokens = r.sys; s.sysSource = r.source;
-    if (r.source !== 'cold-self') { const sc = scaledComp(f, s.ctx, s.sysTokens); s.comp = sc.comp; s.toolTop = sc.tools; s.compScale = sc.scale; }
     s.advice = compactAdvice(f, s, s.ctx, s.compScale);
   }
 }
@@ -532,11 +480,9 @@ const server = http.createServer((req, res) => {
 function reset() {
   files.clear(); sessions.clear(); version = 0;
   CAL.sys = DEFAULTS.sys; CAL.summary = DEFAULTS.summary; CAL.regrowth = DEFAULTS.regrowth;
-  CAL.n = { sys: 0, summary: 0, regrowth: 0, rewrite: 0, extra: 0, postCtx: 0, warmSys: 0 };
-  CAL.byKey = new Map(); CAL.byProj = new Map();
-  CAL.folder = { cold: [], warm: [], summary: [], regrowth: [], rewrite: [], extra: [], postCtx: [] };
-  CAL.cfgKeys = 0; CAL.noCfgKey = 0;
-  CAL.rewrite = null; CAL.extra = null; CAL.postCtx = null; CAL.warmSys = null;
+  CAL.n = { sys: 0, summary: 0, regrowth: 0, rewrite: 0, extra: 0, postCtx: 0 };
+  CAL.folder = { first: [], summary: [], regrowth: [], rewrite: [], extra: [], postCtx: [] };
+  CAL.rewrite = null; CAL.extra = null; CAL.postCtx = null;
 }
 // target: 디렉터리 · 파일 · 그 배열. 항상 reset부터 한다.
 function replay(target) {
@@ -554,11 +500,6 @@ if (require.main === module) {
   scan(ROOT); calibrate(); recomputeAdvice();
   console.log('[cc-monitor] sessions:', sessions.size, 'files:', files.size);
   console.log('[cc-monitor] calibration (folder medians): sys=' + CAL.sys + ' (n=' + CAL.n.sys + ') summary=' + CAL.summary + ' (n=' + CAL.n.summary + ') regrowth=' + CAL.regrowth + ' (n=' + CAL.n.regrowth + ')');
-  console.log(`[cc-monitor] sys ladder: keys=${CAL.cfgKeys} noKey=${CAL.noCfgKey} coldFolder=${CAL.folder.cold.length} warmFolder=${CAL.folder.warm.length}`);
-  for (const [key, b] of CAL.byKey) {
-    const cm = median(b.cold.map(e => e.v)), wm = median(b.warm.map(e => e.v));
-    console.log(`[cc-monitor]   key=${key.slice(0, 40)} cold n=${b.cold.length} med=${cm != null ? cm : '-'} warm n=${b.warm.length} med=${wm != null ? wm : '-'}`);
-  }
   try { fs.watch(ROOT, { recursive: true }, onChange); console.log('[cc-monitor] watching (recursive)'); }
   catch (e) { console.log('[cc-monitor] recursive watch unavailable, polling every 2s'); setInterval(onChange, 2000); }
   setInterval(() => { if (clients.size) broadcast(); }, 15000); // keep busy/idle flags fresh
