@@ -179,7 +179,7 @@
   ```html
   <!-- index.html — do B-3 R-14: 카드 제목 <h2>를 좌측 열(cost-lcol) 안으로 넣어, 우측 스택(cost-right)이
        제목 줄부터 카드 바닥까지 전부 쓰게 한다. 좌측 열은 제목 아래 남는 높이에 이 세션·오늘 누적을 세로 중앙.
-       우측 스택은 세로 중앙 · 간격 12px 고정(R-18). 카드 높이가 딱 맞는 4열 모드에선 압축 절약이 제목 줄, 손실이 바닥에 온다. 고정폭 180px 안에서 좌측 정렬(R-15 · R-17 · R-18). 칸 형식은 R-8 그대로.
+       우측 스택은 세로 중앙 · 간격 12px 고정(R-18). 카드 높이가 딱 맞는 4열 모드에선 압축 절약이 제목 줄, 손실이 바닥에 온다. 고정폭 160px 안에서 좌측 정렬(R-15 · R-17 · R-18). 칸 형식은 R-8 그대로.
        압축 0회 세션도 "압축 절약" cost-k는 visibility:hidden으로 남겨 카드 높이를 고정한다(R-10 요청).
        (R-7~R-11의 2열 레이아웃은 폐기. R-12 변경 전 복귀 → R-13 높이 채움 → R-14 제목 줄까지 사용) -->
   <div class="card cost-card">
@@ -213,8 +213,8 @@
     .cost-mid { flex:1; display:flex; gap:18px; }                      (가로 2열 행 · justify-content:center 제거)
     .cost-lcol { flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; }
     .cost-left { margin:auto 0; display:flex; align-items:flex-end; gap:18px; }
-    .cost-right { width:180px; flex-shrink:0; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; text-align:left; gap:12px; }
-    (R-15 · R-17 · R-18: 우측 스택은 고정폭 180px · 세로 중앙(space-between 이면 카드가 늘어난 2x2 접힘에서 두 칸이 찢어진다) 좌측 정렬 — 왼쪽 경계선이 내용 길이와 무관하게 고정된다)
+    .cost-right { width:160px; flex-shrink:0; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; text-align:left; gap:12px; }
+    (R-15 · R-17 · R-18: 우측 스택은 고정폭 160px · 세로 중앙(space-between 이면 카드가 늘어난 2x2 접힘에서 두 칸이 찢어진다) 좌측 정렬 — 왼쪽 경계선이 내용 길이와 무관하게 고정된다)
     (.cost-head · .cost-cols · .cost-col2 는 삭제)
   ```
 - 순서: `LOSS_CAUSES` → `dur()` → CSS → 마크업 교체
