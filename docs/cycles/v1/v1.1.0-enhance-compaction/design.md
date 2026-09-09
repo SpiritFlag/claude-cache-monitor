@@ -177,23 +177,27 @@
   const dur = ms => { const m = Math.round((ms || 0) / 60e3); return m < 60 ? m + '분' : Math.floor(m / 60) + '시간 ' + (m % 60) + '분'; };
   ```
   ```html
-  <!-- index.html — do B-3 R-12: 변경 전 cost-head(한 줄 · 바닥 정렬)를 그대로 두고,
-       원래 우측 "캐시 깨짐 손실" 자리(margin-left:auto · 우측 정렬)를 cost-right 세로 스택으로 바꿔
-       "압축 절약"을 그 위에 얹는다. 칸 형식은 R-8 그대로(소제목 옆 건수·소요시간, $금액 옆 아꼈어요/잃었어요).
+  <!-- index.html — do B-3 R-14: 카드 제목 <h2>를 좌측 열(cost-lcol) 안으로 넣어, 우측 스택(cost-right)이
+       제목 줄부터 카드 바닥까지 전부 쓰게 한다. 좌측 열은 제목 아래 남는 높이에 이 세션·오늘 누적을 세로 중앙.
+       우측 스택은 space-between — 압축 절약이 제목 줄, 캐시 깨짐 손실이 바닥. 칸 형식은 R-8 그대로.
        압축 0회 세션도 "압축 절약" cost-k는 visibility:hidden으로 남겨 카드 높이를 고정한다(R-10 요청).
-       (R-7~R-11의 2열 레이아웃은 폐기 — 사용자가 변경 전 박스를 기준으로 삼았다) -->
-  <!-- do B-3 R-13: cost-head 가 cost-mid 남은 높이를 다 채우고(flex:1), 우측 스택은 그 높이를
-       space-between 으로 위아래 끝까지 쓴다(제목 아래 여백 없음). 좌측 쌍은 cost-left 로 묶어 세로 중앙. -->
-  <div class="cost-head">
-    <div class="cost-left">
-      <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
-      <div class="vsep"></div>
-      <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
+       (R-7~R-11의 2열 레이아웃은 폐기. R-12 변경 전 복귀 → R-13 높이 채움 → R-14 제목 줄까지 사용) -->
+  <div class="card cost-card">
+    <div class="cost-mid">
+      <div class="cost-lcol">
+        <h2>Cost (API 환산)</h2>
+        <div class="cost-left">
+          <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
+          <div class="vsep"></div>
+          <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
+        </div>
+      </div>
+      <div class="cost-right">
+        <div class="cost-k" style="${s.compacts > 0 ? '' : 'visibility:hidden'}"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>
+        <div class="cost-k"><div class="cost-k-h"><span>캐시 깨짐 손실</span><small>${sumCauses(s.byCause, LOSS_CAUSES).n}건</small></div><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div></div>
+      </div>
     </div>
-    <div class="cost-right">
-      <div class="cost-k" style="${s.compacts > 0 ? '' : 'visibility:hidden'}"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>
-      <div class="cost-k"><div class="cost-k-h"><span>캐시 깨짐 손실</span><small>${sumCauses(s.byCause, LOSS_CAUSES).n}건</small></div><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div></div>
-    </div>
+    <div class="cost-foot">…기존 그대로…</div>
   </div>
   ```
   ```
@@ -205,13 +209,13 @@
   do B-3 R-8: 소제목+건수·소요시간 한 줄 스타일 신설.
     .cost-k-h { display:flex; align-items:baseline; gap:8px; }
     .cost-k-h small { font-size:11px; color:var(--dim); font-weight:400; white-space:nowrap; }
-  do B-3 R-12 · R-13: 우측 칸만 세로 스택으로. R-13 에서 남은 높이를 채우도록 고쳤다.
-    .cost-mid { flex:1; display:flex; flex-direction:column; }            (justify-content:center 제거)
-    .cost-head { flex:1; display:flex; align-items:center; gap:18px; }
-    .cost-left { display:flex; align-items:flex-end; gap:18px; }
-    .cost-right { margin-left:auto; align-self:stretch; display:flex; flex-direction:column; justify-content:space-between; align-items:flex-end; text-align:right; gap:12px; }
+  do B-3 R-12 ~ R-14: 우측 칸만 세로 스택. 제목 줄부터 바닥까지 채운다.
+    .cost-mid { flex:1; display:flex; gap:18px; }                      (가로 2열 행 · justify-content:center 제거)
+    .cost-lcol { flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; }
+    .cost-left { margin:auto 0; display:flex; align-items:flex-end; gap:18px; }
+    .cost-right { display:flex; flex-direction:column; justify-content:space-between; align-items:flex-end; text-align:right; gap:12px; }
     .cost-right .cost-k { align-items:flex-end; }
-    (.cost-cols · .cost-col2 는 삭제)
+    (.cost-head · .cost-cols · .cost-col2 는 삭제)
   ```
 - 순서: `LOSS_CAUSES` → `dur()` → CSS → 마크업 교체
 - 검증

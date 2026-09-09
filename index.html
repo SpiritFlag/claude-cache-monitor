@@ -57,10 +57,10 @@
   .top .card h2 { margin:0; }
   .top .card .sub { margin-top:0; }
   .card.cost-card { display:flex; flex-direction:column; }
-  .cost-mid { flex:1; display:flex; flex-direction:column; }
-  .cost-head { flex:1; display:flex; align-items:center; gap:18px; }
-  .cost-left { display:flex; align-items:flex-end; gap:18px; }
-  .cost-right { margin-left:auto; align-self:stretch; display:flex; flex-direction:column; justify-content:space-between; align-items:flex-end; text-align:right; gap:12px; }
+  .cost-mid { flex:1; display:flex; gap:18px; }
+  .cost-lcol { flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; }
+  .cost-left { margin:auto 0; display:flex; align-items:flex-end; gap:18px; }
+  .cost-right { display:flex; flex-direction:column; justify-content:space-between; align-items:flex-end; text-align:right; gap:12px; }
   .cost-right .cost-k { align-items:flex-end; }
   .cost-foot { display:flex; flex-direction:column; gap:10px; }
   .cost-k { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
@@ -266,18 +266,19 @@ function renderMain() {
         </div>
         ${adviceLine(s)}
       </div>
-      <div class="card cost-card"><h2>Cost (API 환산)</h2>
+      <div class="card cost-card">
         <div class="cost-mid">
-          <div class="cost-head">
+          <div class="cost-lcol">
+            <h2>Cost (API 환산)</h2>
             <div class="cost-left">
               <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
               <div class="vsep"></div>
               <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
             </div>
-            <div class="cost-right">
-              <div class="cost-k" style="${s.compacts > 0 ? '' : 'visibility:hidden'}"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>
-              <div class="cost-k"><div class="cost-k-h"><span>캐시 깨짐 손실</span><small>${sumCauses(s.byCause, LOSS_CAUSES).n}건</small></div><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div></div>
-            </div>
+          </div>
+          <div class="cost-right">
+            <div class="cost-k" style="${s.compacts > 0 ? '' : 'visibility:hidden'}"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>
+            <div class="cost-k"><div class="cost-k-h"><span>캐시 깨짐 손실</span><small>${sumCauses(s.byCause, LOSS_CAUSES).n}건</small></div><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div></div>
           </div>
         </div>
         <div class="cost-foot">
