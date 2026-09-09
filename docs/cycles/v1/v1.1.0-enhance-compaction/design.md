@@ -209,6 +209,9 @@
   do B-3 R-8: 소제목+건수·소요시간 한 줄 스타일 신설.
     .cost-k-h { display:flex; align-items:baseline; gap:8px; }
     .cost-k-h small { font-size:11px; color:var(--dim); font-weight:400; white-space:nowrap; }
+  do B-3 R-9: 1열 세로 중앙 정렬, 2열을 1열 폭과 무관하게 우측 고정.
+    .cost-cols { display:flex; align-items:flex-start; justify-content:space-between; gap:32px; flex-wrap:wrap; row-gap:14px; }
+    .cost-head { display:flex; align-items:center; gap:18px; }
   ```
 - 순서: `LOSS_CAUSES` → `dur()` → CSS → 마크업 교체
 - 검증
