@@ -210,7 +210,7 @@
     .cost-k-h { display:flex; align-items:baseline; gap:8px; }
     .cost-k-h small { font-size:11px; color:var(--dim); font-weight:400; white-space:nowrap; }
   do B-3 R-12 ~ R-14: 우측 칸만 세로 스택. 제목 줄부터 바닥까지 채운다.
-    .cost-mid { flex:1; display:flex; gap:18px; }                      (가로 2열 행 · justify-content:center 제거)
+    .cost-mid { flex:1; display:flex; gap:36px; }                      (가로 2열 행 · justify-content:center 제거 · R-16 간격 18→36)
     .cost-lcol { flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; }
     .cost-left { margin:auto 0; display:flex; align-items:flex-end; gap:18px; }
     .cost-right { width:220px; flex-shrink:0; display:flex; flex-direction:column; justify-content:space-between; align-items:flex-start; text-align:left; gap:12px; }
