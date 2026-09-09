@@ -59,8 +59,8 @@
   .card.cost-card { display:flex; flex-direction:column; }
   .cost-mid { flex:1; display:flex; flex-direction:column; justify-content:center; }
   .cost-cols { display:flex; align-items:flex-start; justify-content:space-between; gap:32px; flex-wrap:wrap; row-gap:14px; }
-  .cost-head { display:flex; align-items:center; gap:18px; }
-  .cost-col2 { display:flex; flex-direction:column; gap:12px; }
+  .cost-head { display:flex; align-items:flex-start; gap:18px; }
+  .cost-col2 { display:flex; flex-direction:column; gap:12px; width:300px; flex-shrink:0; }
   .cost-foot { display:flex; flex-direction:column; gap:10px; }
   .cost-k { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
   .cost-k span { font-size:11px; color:var(--dim); }
@@ -274,7 +274,7 @@ function renderMain() {
               <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
             </div>
             <div class="cost-col2">
-              ${s.compacts > 0 ? `<div class="cost-k"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>` : ''}
+              <div class="cost-k" style="${s.compacts > 0 ? '' : 'visibility:hidden'}"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>
               <div class="cost-k"><div class="cost-k-h"><span>캐시 깨짐 손실</span><small>${sumCauses(s.byCause, LOSS_CAUSES).n}건</small></div><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div></div>
             </div>
           </div>
