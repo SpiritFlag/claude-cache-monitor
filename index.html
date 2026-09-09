@@ -58,9 +58,9 @@
   .top .card .sub { margin-top:0; }
   .card.cost-card { display:flex; flex-direction:column; }
   .cost-mid { flex:1; display:flex; flex-direction:column; justify-content:center; }
-  .cost-cols { display:flex; align-items:flex-start; justify-content:space-between; gap:32px; flex-wrap:wrap; row-gap:14px; }
+  .cost-cols { display:grid; grid-template-columns:minmax(0,1fr) 240px; column-gap:24px; align-items:start; }
   .cost-head { display:flex; align-items:flex-start; gap:18px; }
-  .cost-col2 { display:flex; flex-direction:column; gap:12px; width:300px; flex-shrink:0; }
+  .cost-col2 { display:flex; flex-direction:column; gap:12px; }
   .cost-foot { display:flex; flex-direction:column; gap:10px; }
   .cost-k { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
   .cost-k span { font-size:11px; color:var(--dim); }

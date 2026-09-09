@@ -208,10 +208,11 @@
   do B-3 R-8: 소제목+건수·소요시간 한 줄 스타일 신설.
     .cost-k-h { display:flex; align-items:baseline; gap:8px; }
     .cost-k-h small { font-size:11px; color:var(--dim); font-weight:400; white-space:nowrap; }
-  do B-3 R-10: 1열은 라벨이 맞도록 top 정렬로 되돌리고, 2열은 고정폭으로 좌우 흔들림을 없앤다.
-    .cost-cols { display:flex; align-items:flex-start; justify-content:space-between; gap:32px; flex-wrap:wrap; row-gap:14px; }
+  do B-3 R-11: 2열은 grid 트랙으로 고정한다. flex-wrap 이 있으면 카드 폭(1fr 열에서 약 680px)에서
+    2열이 아래로 떨어져 "우측 2열"이 성립하지 않는다. minmax(0,1fr) 로 1열이 커져도 2열 트랙 위치가 밀리지 않는다.
+    .cost-cols { display:grid; grid-template-columns:minmax(0,1fr) 240px; column-gap:24px; align-items:start; }
     .cost-head { display:flex; align-items:flex-start; gap:18px; }
-    .cost-col2 { display:flex; flex-direction:column; gap:12px; width:300px; flex-shrink:0; }
+    .cost-col2 { display:flex; flex-direction:column; gap:12px; }
   ```
 - 순서: `LOSS_CAUSES` → `dur()` → CSS → 마크업 교체
 - 검증
