@@ -5,7 +5,7 @@ const { runFixture } = require('./helper.js');
 
 test('rewrite-dup: 재기록 구간(uuid 동일)은 종류 불문 한 번만 반영된다 (D-1a)', () => {
   const { s, f, breaks } = runFixture('rewrite-dup');
-  assert.equal(s.prompts, 1);
+  assert.equal(s.prompts, 2);
   assert.equal(s.compacts, 1);
   assert.equal(s.asks, 1);
   assert.equal(s.commits, 1);

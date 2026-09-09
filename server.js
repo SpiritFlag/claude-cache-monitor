@@ -306,6 +306,15 @@ function handleRecord(f, d) {
       return;
     case 'attachment':
       if (d.attachment && PREFIX_EVENTS.has(d.attachment.type)) f.pending.push('prefix:' + d.attachment.type);
+      if (!f.isSub && d.attachment && d.attachment.type === 'queued_command') {
+        const a = d.attachment;
+        if (a.commandMode === 'prompt' && a.origin && a.origin.kind === 'human') {
+          s.prompts++;
+          if (ts) s.promptMarks.push({ t: ts, a: activeAt(s, f, ts) });
+          f.comp.user += (Array.isArray(a.prompt) ? a.prompt : [])
+            .reduce((n, b) => n + (b && b.type === 'text' ? (b.text || '').length : 0), 0);
+        }
+      }
       // D-1 · D-3. 첫 assistant 호출 전까지 MCP 구성 키 재료(서버 이름)를 모은다
       if (!f.cfgFrozen && d.attachment) {
         const a = d.attachment;
@@ -320,9 +329,10 @@ function handleRecord(f, d) {
       if (!f.isSub) f.lastUserTs = ts;
       const c = d.message && d.message.content;
       if (d.isMeta && RESUME_RE.test(markerText(c))) f.pending.push('resume');
-      const human = !d.isMeta && !f.isSub && (typeof c === 'string' || (Array.isArray(c) && c.every(b => b.type === 'text' || b.type === 'image')));
+      const askAnswer = !f.isSub && Array.isArray(c) && c.some(b => b.type === 'tool_result' && f.askIds.has(b.tool_use_id));
+      const human = askAnswer || (!d.isMeta && !f.isSub && (typeof c === 'string' || (Array.isArray(c) && c.every(b => b.type === 'text' || b.type === 'image'))));
       if (human) { s.prompts++; if (ts) s.promptMarks.push({ t: ts, a: activeAt(s, f, ts) }); }
-      if (!f.isSub && Array.isArray(c) && c.some(b => b.type === 'tool_result')) s.pendingAsk = false;
+      if (askAnswer) s.pendingAsk = false;
       if (!f.isSub && c !== undefined) {
         if (d.isCompactSummary) { f.comp = newComp(); f.toolChars = {}; f.results = []; f.edited = {}; f.comp.summary += blockLen(c); }
         else if (typeof c === 'string') { f.comp[d.isMeta ? 'reminders' : 'user'] += c.length; }
@@ -340,7 +350,7 @@ function handleRecord(f, d) {
       if (!f.cfgFrozen) f.cfgFrozen = true;
       if (Array.isArray(m.content)) for (const b of m.content) {
         if (b.type === 'tool_use') {
-          s.lastTool = b.name; if (b.name === 'AskUserQuestion') { s.asks++; if (!f.isSub) s.pendingAsk = true; }
+          s.lastTool = b.name; if (b.name === 'AskUserQuestion') { s.asks++; if (!f.isSub) s.pendingAsk = true; f.askIds.add(b.id); }
           if (!f.isSub) {
             const fp = b.input && b.input.file_path ? String(b.input.file_path).replace(/\\/g, '/').toLowerCase() : undefined;
             f.toolNames[b.id] = { name: b.name, path: fp }; f.comp.toolInput += JSON.stringify(b.input || {}).length;
@@ -430,9 +440,9 @@ function handleRecord(f, d) {
 
 function readFile(fp) {
   let f = files.get(fp);
-  if (!f) { f = { fp, offset: 0, rest: '', sessionId: null, isSub: /[\\/]subagents[\\/]/.test(fp), seen: new Set(), uuidSeen: new Set(), prev: null, pending: [], lastUserTs: 0, comp: newComp(), toolChars: {}, toolNames: {}, results: [], edited: {}, callIdx: 0, cfgNames: new Set(), cfgFrozen: false, compactPost: null, compactPre: null, compactDur: null, compactDropped: null, compactTrigger: null, grp: null, actPrevTs: 0 }; files.set(fp, f); }
+  if (!f) { f = { fp, offset: 0, rest: '', sessionId: null, isSub: /[\\/]subagents[\\/]/.test(fp), seen: new Set(), uuidSeen: new Set(), prev: null, pending: [], lastUserTs: 0, comp: newComp(), toolChars: {}, toolNames: {}, results: [], edited: {}, callIdx: 0, cfgNames: new Set(), cfgFrozen: false, askIds: new Set(), compactPost: null, compactPre: null, compactDur: null, compactDropped: null, compactTrigger: null, grp: null, actPrevTs: 0 }; files.set(fp, f); }
   let st; try { st = fs.statSync(fp); } catch { return; }
-  if (st.size < f.offset) { f.offset = 0; f.rest = ''; f.seen = new Set(); f.uuidSeen = new Set(); f.prev = null; f.comp = newComp(); f.toolChars = {}; f.toolNames = {}; f.results = []; f.edited = {}; f.callIdx = 0; f.cfgNames = new Set(); f.cfgFrozen = false; f.compactPost = null; f.compactPre = null; f.compactDur = null; f.compactDropped = null; f.compactTrigger = null; f.grp = null; f.actPrevTs = 0; } // truncated/rewritten
+  if (st.size < f.offset) { f.offset = 0; f.rest = ''; f.seen = new Set(); f.uuidSeen = new Set(); f.prev = null; f.comp = newComp(); f.toolChars = {}; f.toolNames = {}; f.results = []; f.edited = {}; f.callIdx = 0; f.cfgNames = new Set(); f.cfgFrozen = false; f.askIds = new Set(); f.compactPost = null; f.compactPre = null; f.compactDur = null; f.compactDropped = null; f.compactTrigger = null; f.grp = null; f.actPrevTs = 0; } // truncated/rewritten
   if (st.size === f.offset) return;
   const fd = fs.openSync(fp, 'r'); const len = st.size - f.offset; const buf = Buffer.alloc(len);
   fs.readSync(fd, buf, 0, len, f.offset); fs.closeSync(fd); f.offset = st.size;
