@@ -177,24 +177,34 @@
   const dur = ms => { const m = Math.round((ms || 0) / 60e3); return m < 60 ? m + '분' : Math.floor(m / 60) + '시간 ' + (m % 60) + '분'; };
   ```
   ```html
-  <!-- index.html — do B-3 R-6: cost-head를 두 줄로 나눈다. 1행 이 세션·오늘 누적(원위치),
-       2행 압축 절약·캐시 깨짐 손실. 각 칸은 금액+단어(<small>아꼈어요/잃었어요</small>) 다음 줄에
-       .sub로 건수(절약 칸은 "N건 · N분 걸렸어요")를 보인다.
-       (R-4 Q-1 · R-5 는 한 줄 4칸 시도였고 정렬이 계속 어긋나 R-6 에서 2행으로 바뀌었다) -->
-  <div class="cost-head cost-head2">
-    ${s.compacts > 0 ? `<div class="cost-k"><span>압축 절약</span><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div><div class="sub">${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</div></div>` : ''}
-    <div class="cost-k right"><span>캐시 깨짐 손실</span><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div><div class="sub">${sumCauses(s.byCause, LOSS_CAUSES).n}건</div></div>
+  <!-- index.html — do B-3 R-7: cost-mid를 cost-cols(가로 2열)로 나눈다.
+       1열(cost-head, 원래 마크업 그대로): 이 세션·오늘 누적 좌우 나란히.
+       2열(신설 cost-col2, 세로 스택): 압축 절약 위 · 캐시 깨짐 손실 아래.
+       각 칸은 금액+단어(<small>아꼈어요/잃었어요</small>) 다음 줄에 .sub로 건수
+       (절약 칸은 "N건 · N분 걸렸어요")를 보인다.
+       (R-4 Q-1 · R-5 는 한 줄 4칸, R-6 은 2행 분리였고 R-7 에서 2열로 바뀌었다) -->
+  <div class="cost-cols">
+    <div class="cost-head">
+      <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
+      <div class="vsep"></div>
+      <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
+    </div>
+    <div class="cost-col2">
+      ${s.compacts > 0 ? `<div class="cost-k"><span>압축 절약</span><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div><div class="sub">${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</div></div>` : ''}
+      <div class="cost-k"><span>캐시 깨짐 손실</span><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div><div class="sub">${sumCauses(s.byCause, LOSS_CAUSES).n}건</div></div>
+    </div>
   </div>
   ```
   ```
   index.html CSS — .cost-k .mid.bad 규칙 옆에 한 줄 추가:
     .cost-k .mid.ok { color:var(--ok); }
   do B-3 R-5: 칸이 좁아져도 내용이 줄바꿈되지 않게 세 규칙을 고친다.
-    .cost-head { display:flex; align-items:flex-end; gap:18px; flex-wrap:wrap; row-gap:14px; }
     .cost-k { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
     .cost-k .mid { font:600 26px/1 var(--mono); color:var(--dim); padding-bottom:2px; white-space:nowrap; }
-  do B-3 R-6: 2행 여백 한 줄 추가.
-    .cost-head2 { margin-top:14px; }
+  do B-3 R-7: cost-mid 를 가로 2열로 나누고, 원래 cost-head 는 1열로만 쓴다.
+    .cost-cols { display:flex; align-items:flex-start; gap:32px; flex-wrap:wrap; row-gap:14px; }
+    .cost-head { display:flex; align-items:flex-end; gap:18px; }
+    .cost-col2 { display:flex; flex-direction:column; gap:12px; }
   ```
 - 순서: `LOSS_CAUSES` → `dur()` → CSS → 마크업 교체
 - 검증
