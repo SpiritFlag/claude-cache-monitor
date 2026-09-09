@@ -57,16 +57,20 @@
   .top .card h2 { margin:0; }
   .top .card .sub { margin-top:0; }
   .card.cost-card { display:flex; flex-direction:column; }
-  .cost-mid { flex:1; display:flex; flex-direction:column; justify-content:center; }
-  .cost-head { display:flex; align-items:flex-end; gap:18px; }
+  .cost-mid { flex:1; display:flex; gap:18px; }
+  .cost-lcol { flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; }
+  .cost-left { margin:auto 0; display:flex; align-items:flex-end; gap:18px; }
+  .cost-right { width:160px; flex-shrink:0; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; text-align:left; gap:12px; }
   .cost-foot { display:flex; flex-direction:column; gap:10px; }
-  .cost-k { display:flex; flex-direction:column; gap:6px; }
+  .cost-k { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
   .cost-k span { font-size:11px; color:var(--dim); }
+  .cost-k-h { display:flex; align-items:baseline; gap:8px; }
+  .cost-k-h small { font-size:11px; color:var(--dim); font-weight:400; white-space:nowrap; }
   .cost-k .big { font:700 44px/1 var(--mono); letter-spacing:-.02em; }
-  .cost-k .mid { font:600 26px/1 var(--mono); color:var(--dim); padding-bottom:2px; }
+  .cost-k .mid { font:600 26px/1 var(--mono); color:var(--dim); padding-bottom:2px; white-space:nowrap; }
   .cost-k .mid.bad { color:var(--bad); }
+  .cost-k .mid.ok { color:var(--ok); }
   .cost-k .mid small { font-size:12px; color:var(--dim); font-weight:400; }
-  .cost-k.right { margin-left:auto; align-items:flex-end; text-align:right; }
   .vsep { width:1px; align-self:stretch; background:var(--line); }
   .big { font: 700 44px/1 var(--mono); }
   .sub { color:var(--dim); font-size:12px; margin-top:6px; font-family:var(--mono); }
@@ -106,6 +110,7 @@
   .legend .li b { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; }
   .advice { border-top:1px solid var(--line); padding-top:10px; display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px; }
   .advice b { color:var(--ok); font-family:var(--mono); } .advice.dim { color:var(--dim); font-size:12px; }
+  .advice.dim b { color:inherit; }
   .advice.strong { border-top-color:var(--ok); } .advice.strong b { color:var(--ok); }
   .advice button, .mh button { background:#2a3140; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12px; }
   .advice button:hover, .mh button:hover { background:#354055; }
@@ -157,6 +162,7 @@
 const $ = s => document.querySelector(s);
 const fmtTok = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(Math.round(n||0));
 const usd = n => '$' + (n||0).toFixed(2);
+const dur = ms => Math.round((ms || 0) / 60e3) + '분';   // 항상 분 단위(72분). 시간 넘는 압축은 드물어 폭을 안 늘린다
 const short = m => (m||'').replace('claude-','').replace('-4-5-20251001','');
 const ago = ms => { if (ms < 60e3) return Math.floor(ms/1000)+'s'; if (ms < 3600e3) return Math.floor(ms/60e3)+'m'; if (ms < 86400e3) return (ms/3600e3).toFixed(1)+'h'; return (ms/86400e3).toFixed(1)+'d'; };
 const DAY_SHIFT = 4 * 3600e3;
@@ -259,13 +265,19 @@ function renderMain() {
         </div>
         ${adviceLine(s)}
       </div>
-      <div class="card cost-card"><h2>Cost (API 환산)</h2>
+      <div class="card cost-card">
         <div class="cost-mid">
-          <div class="cost-head">
-            <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
-            <div class="vsep"></div>
-            <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
-            <div class="cost-k right"><span>캐시 깨짐 손실</span><div class="mid bad">${usd(s.breakCost)} <small>${d.breaks.length}건</small></div></div>
+          <div class="cost-lcol">
+            <h2>Cost (API 환산)</h2>
+            <div class="cost-left">
+              <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
+              <div class="vsep"></div>
+              <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
+            </div>
+          </div>
+          <div class="cost-right">
+            <div class="cost-k" style="${s.compacts > 0 ? '' : 'visibility:hidden'}"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>
+            <div class="cost-k"><div class="cost-k-h"><span>캐시 깨짐 손실</span><small>${sumCauses(s.byCause, LOSS_CAUSES).n}건</small></div><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div></div>
           </div>
         </div>
         <div class="cost-foot">
@@ -365,6 +377,7 @@ const causeGroup = c => CAUSE_OF[c] || CAUSE_OF.unexplained;   // 모르는 키�
 const causeColor = c => causeGroup(c).color;
 const HABITS = CAUSE_GROUPS.filter(g => !g.free).map(g => [g.label, g.causes]);   // 기존 6줄과 같은 내용
 const FREE_CAUSES = CAUSE_GROUPS.filter(g => g.free).flatMap(g => g.causes);      // habitsCard의 free 줄
+const LOSS_CAUSES = CAUSE_GROUPS.filter(g => !g.free).flatMap(g => g.causes);
 function sumCauses(byCause, causes) { const r = { n: 0, extra: 0, rewrite: 0 }; for (const c of causes) { const v = byCause && byCause[c]; if (v) { r.n += v.n; r.extra += v.extra; r.rewrite += v.rewrite; } } return r; }
 function habitsCard(s) {
   const all = {}; for (const x of state.sessions) for (const [c, v] of Object.entries(x.byCause || {})) { const a = all[c] = all[c] || { n: 0, extra: 0, rewrite: 0 }; a.n += v.n; a.extra += v.extra; a.rewrite += v.rewrite; }
@@ -379,13 +392,7 @@ function principleLine() {
 }
 function adviceLine(s) {
   const a = s.advice; if (!a) return '';
-  if (a.recommend) {
-    const msg = a.strong
-      ? `압축하면 순이득 <b>${usd(a.saving)}</b> (실비 ${usd(a.compactionCost)}) — 지금 하세요`
-      : `압축으로 순이득 <b>${usd(a.saving)}</b> (실비 ${usd(a.compactionCost)}) 아끼세요`;
-    return `<div class="advice${a.strong ? ' strong' : ''}"><span>${msg}</span><button onclick="openAdvice()">상세</button></div>`;
-  }
-  return `<div class="advice dim"><span>압축 이득 작음 (${fmtTok(a.dead)} 폐기물 · 손익분기 ${a.breakEven === null ? '∞' : a.breakEven + '호출'})</span><button onclick="openAdvice()">상세</button></div>`;
+  return `<div class="advice ${a.emphasize ? 'strong' : 'dim'}"><span>폐기물 <b>${fmtTok(a.dead)}</b> · 컨텍스트의 ${Math.round(100 * a.deadPct)}%</span><button onclick="openAdvice()">상세</button></div>`;
 }
 function openAdvice() {
   const s = state.sessions.find(x => x.id === selected); const a = s && s.advice; if (!a) return;
@@ -403,9 +410,8 @@ function openAdvice() {
       <li>지금 호출당 캐시 읽기 <b>${usd(a.perCallNow)}</b> → 압축 후 <b>${usd(a.perCallAfter)}</b> (예상 ${fmtTok(a.postCtx)})</li>
       <li>이 세션 턴당 평균 호출 <b>${a.callsPerTurn.toFixed(1)}</b>회 → 턴당 <b>${usd(a.perCallNow * a.callsPerTurn)}</b></li>
       <li>압축 비용 추정 <b>${usd(a.compactionCost)}</b> (요약 출력 ${fmtTok(a.summaryTokens)} + 재작성 ${fmtTok(a.rewriteTokens)} + 다시 읽기 ${fmtTok(a.regrowthTokens)}, 고정값)</li>
-      <li>손익분기 <b>${a.breakEven === null ? '∞' : a.breakEven + '호출'}</b> · 앞으로 ${a.horizon}호출 기준 순절감 <b style="color:${a.saving > 0 ? 'var(--ok)' : 'var(--bad)'}">${usd(a.saving)}</b></li>
     </ul>
-    <div class="sub">추천 조건: 컨텍스트 100k 초과이고 순절감이 압축 비용보다 크면서, 폐기물 25% 이상 또는 손익분기 15호출 이하. 압축은 캐시가 살아있을 때 해야 함(만료 후 압축은 그 호출이 전체를 다시 씀).</div>
+    <div class="sub">강조 조건: 컨텍스트가 이어가기 임계(${fmtTok(s.continueThreshold)})를 넘고 폐기물이 50% 이상일 때. 압축은 캐시가 살아있을 때 해야 함(만료 후 압축은 그 호출이 전체를 다시 씀).</div>
     ${calNote()}
   </div>`;
   $('#modal').hidden = false;

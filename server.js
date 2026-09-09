@@ -166,7 +166,7 @@ function resolveSys(s, ctx) {
 }
 // D-8. 압축 비용 고정 상수. 폴더 · 사용자가 무엇이든 이 값이다(CAL 실측과 분리)
 const COMPACT = { summary: 20000, rewrite: 55000, regrowth: 60000 };
-const STRONG_RATIO = 3; // D-10. 순이득이 압축 실비의 이 배수를 넘으면 톤을 강화한다(잠정치)
+const continueThresholdOf = s => (s.sysTokens || CAL.sys) + CAL.regrowth;
 function compactAdvice(f, s, total, scale) {
   const lastRead = {}; for (const r of f.results) if (r.name === 'Read' && r.path) lastRead[r.path] = r.idx;
   let dupRead = 0, staleRead = 0, oldResults = 0, dupN = 0, staleN = 0, oldN = 0;
@@ -182,16 +182,34 @@ function compactAdvice(f, s, total, scale) {
   const postCtx = Math.min(total, s.sysTokens + COMPACT.summary);
   const perCallNow = total * p.in * p.read / 1e6, perCallAfter = postCtx * p.in * p.read / 1e6;
   const compactionCost = (COMPACT.summary * p.out + COMPACT.rewrite * p.in * 2 + COMPACT.regrowth * p.in * 2) / 1e6;
-  const perCallSave = Math.max(0, perCallNow - perCallAfter);
-  const breakEven = perCallSave > 0 ? Math.ceil(compactionCost / perCallSave) : Infinity;
   const callsPerTurn = s.prompts ? s.calls / s.prompts : 10;
-  const horizon = 50;
-  const saving = perCallSave * horizon - compactionCost;
-  const recommend = total > 100000 && saving > compactionCost && (dead / total > 0.25 || breakEven <= 15); // saving must at least double the compaction cost
   return { dead, dupRead: tok(dupRead), staleRead: tok(staleRead), oldResults: tok(oldResults), dupN, staleN, oldN, deadPct: total ? dead / total : 0,
-    perCallNow, perCallAfter, compactionCost, breakEven, callsPerTurn, horizon, saving, postCtx,
+    perCallNow, perCallAfter, compactionCost, callsPerTurn, postCtx,
     summaryTokens: COMPACT.summary, rewriteTokens: COMPACT.rewrite, regrowthTokens: COMPACT.regrowth,
-    recommend, strong: recommend && saving >= compactionCost * STRONG_RATIO };
+    emphasize: total > continueThresholdOf(s) && (total ? dead / total : 0) >= 0.5 };
+}
+
+// 압축 누적 이득. dropped(cumulativeDroppedTokens)는 그 시점까지의 누적이므로
+// 구간마다 그 구간 시작 압축의 dropped를 그대로 쓴다.
+// 주의: c.summary 가 compactMetadata.postTokens 이고, c.post 는 압축 직후 첫 호출의 total 이다.
+//       D-1 검산에는 c.summary 를 쓴다.
+function compactGain(s) {
+  const out = { saved: 0, ms: 0, drift: false };
+  if (!s.compactions.length) return out;
+  const p = price(s.model || 'claude-sonnet-5');
+  const rate = p.in * p.read / 1e6;              // 토큰 1개를 캐시에서 한 번 읽는 값
+  let sum = 0;
+  for (let i = 0; i < s.compactions.length; i++) {
+    const c = s.compactions[i], next = s.compactions[i + 1];
+    const calls = Math.max(0, (next ? next.at : s.calls) - c.at);
+    if (c.dropped != null) out.saved += c.dropped * rate * calls;
+    if (c.durationMs != null) out.ms += c.durationMs;
+    if (c.pre != null && c.summary != null) sum += c.pre - c.summary;
+    if (c.dropped != null && sum > 0 && Math.abs(sum - c.dropped) > 1) out.drift = true;
+  }
+  for (const cs of s.compactSamples) out.saved -= cs.extra;   // 실비 차감
+  if (out.saved < 0) out.saved = 0;
+  return out;
 }
 
 function scaledComp(f, total, sys) {
@@ -276,7 +294,14 @@ function handleRecord(f, d) {
     case 'system':
       if (d.subtype === 'compact_boundary') {
         s.compacts++; f.pending.push('compact');
-        if (d.compactMetadata && d.compactMetadata.postTokens != null) f.compactPost = d.compactMetadata.postTokens; // D-9
+        const cm = d.compactMetadata;
+        if (cm) {
+          if (cm.postTokens != null) f.compactPost = cm.postTokens;
+          f.compactPre     = cm.preTokens != null ? cm.preTokens : null;
+          f.compactDur     = cm.durationMs != null ? cm.durationMs : null;
+          f.compactDropped = cm.cumulativeDroppedTokens != null ? cm.cumulativeDroppedTokens : null;
+          f.compactTrigger = cm.trigger || null;
+        }
       }
       return;
     case 'attachment':
@@ -359,7 +384,9 @@ function handleRecord(f, d) {
           const extra = rewrite * p.in * (mult - p.read) / 1e6;
           if (!f.isSub && cause === 'compact') s.compactSamples.push({ rewrite, extra, ctx: total }); // D-9. 압축 직후 실측(표시 전용)
           if (!FREE_CAUSES.has(cause)) s.breakCost += extra;
-          const bc = s.byCause[cause] = s.byCause[cause] || { n: 0, rewrite: 0, extra: 0 }; bc.n++; bc.rewrite += rewrite; bc.extra += extra;
+          const bc = s.byCause[cause] = s.byCause[cause] || { n: 0, rewrite: 0, extra: 0, sub: { n: 0, rewrite: 0, extra: 0 } };
+          bc.n++; bc.rewrite += rewrite; bc.extra += extra;
+          if (f.isSub) { bc.sub.n++; bc.sub.rewrite += rewrite; bc.sub.extra += extra; }
           if (!FREE_CAUSES.has(cause) && !f.isSub) { brokeNow = true; s.lastAvoidableBreakTs = ts; }
           s.breaks.push({ ts, a: activeAt(s, f, ts), cause, rewrite, extra, model: m.model, from: prev.model, effort: prev.effort + '→' + d.effort, sub: f.isSub, ctx: total,
             prevIn: prev.in, prevCr: prev.cr, prevTotal: prev.total, curIn: t.in, curCw: t.cw, curCr: t.cr,
@@ -382,7 +409,12 @@ function handleRecord(f, d) {
           s.firstTotal = total;
         }
         if (s.calls === REGROWTH_CALLS + 1 && s.startRegrowth == null) s.startRegrowth = Math.max(0, total - s.firstTotal);
-        if (events.includes('compact')) s.compactions.push({ at: s.calls, post: total, summary: f.compactPost != null ? f.compactPost : null, regrowth: null }); // D-9 · R-4: 실측 없으면 null
+        if (events.includes('compact')) s.compactions.push({
+          at: s.calls, post: total,
+          summary: f.compactPost != null ? f.compactPost : null,
+          regrowth: null,
+          pre: f.compactPre, durationMs: f.compactDur, dropped: f.compactDropped, trigger: f.compactTrigger,
+        }); // D-9 · R-4: 실측 없으면 null
         for (const c of s.compactions) if (c.regrowth == null && s.calls === c.at + REGROWTH_CALLS) c.regrowth = Math.max(0, total - c.post);
         f.callIdx++;
         const sc = scaledComp(f, total, s.sysTokens); s.comp = sc.comp; s.toolTop = sc.tools; s.compScale = sc.scale;
@@ -398,9 +430,9 @@ function handleRecord(f, d) {
 
 function readFile(fp) {
   let f = files.get(fp);
-  if (!f) { f = { fp, offset: 0, rest: '', sessionId: null, isSub: /[\\/]subagents[\\/]/.test(fp), seen: new Set(), uuidSeen: new Set(), prev: null, pending: [], lastUserTs: 0, comp: newComp(), toolChars: {}, toolNames: {}, results: [], edited: {}, callIdx: 0, cfgNames: new Set(), cfgFrozen: false, compactPost: null, grp: null, actPrevTs: 0 }; files.set(fp, f); }
+  if (!f) { f = { fp, offset: 0, rest: '', sessionId: null, isSub: /[\\/]subagents[\\/]/.test(fp), seen: new Set(), uuidSeen: new Set(), prev: null, pending: [], lastUserTs: 0, comp: newComp(), toolChars: {}, toolNames: {}, results: [], edited: {}, callIdx: 0, cfgNames: new Set(), cfgFrozen: false, compactPost: null, compactPre: null, compactDur: null, compactDropped: null, compactTrigger: null, grp: null, actPrevTs: 0 }; files.set(fp, f); }
   let st; try { st = fs.statSync(fp); } catch { return; }
-  if (st.size < f.offset) { f.offset = 0; f.rest = ''; f.seen = new Set(); f.uuidSeen = new Set(); f.prev = null; f.comp = newComp(); f.toolChars = {}; f.toolNames = {}; f.results = []; f.edited = {}; f.callIdx = 0; f.cfgNames = new Set(); f.cfgFrozen = false; f.compactPost = null; f.grp = null; f.actPrevTs = 0; } // truncated/rewritten
+  if (st.size < f.offset) { f.offset = 0; f.rest = ''; f.seen = new Set(); f.uuidSeen = new Set(); f.prev = null; f.comp = newComp(); f.toolChars = {}; f.toolNames = {}; f.results = []; f.edited = {}; f.callIdx = 0; f.cfgNames = new Set(); f.cfgFrozen = false; f.compactPost = null; f.compactPre = null; f.compactDur = null; f.compactDropped = null; f.compactTrigger = null; f.grp = null; f.actPrevTs = 0; } // truncated/rewritten
   if (st.size === f.offset) return;
   const fd = fs.openSync(fp, 'r'); const len = st.size - f.offset; const buf = Buffer.alloc(len);
   fs.readSync(fd, buf, 0, len, f.offset); fs.closeSync(fd); f.offset = st.size;
@@ -434,16 +466,18 @@ function snapshot() {
   const now = Date.now();
   const list = [...sessions.values()].filter(s => s.calls > 0).sort((a, b) => b.lastTs - a.lastTs).map(s => {
     const p = price(s.model);
-    const continueThreshold = (s.sysTokens || CAL.sys) + CAL.regrowth;
+    const continueThreshold = continueThresholdOf(s);
     const riskUsd = s.ctx * p.in * 2 / 1e6;
     // D-12. freshCost: 새 세션에서 바닥+다시읽기까지 다시 쓰는 비용. costDelta 양수면 새 세션이 싸다
     const freshCost = continueThreshold * p.in * 2 / 1e6;
+    const cg = compactGain(s);
     return {
     id: s.id, title: s.title || '(untitled)', cwd: s.cwd, entry: s.entry, model: s.model, effort: s.effort, skill: s.skill,
     firstTs: s.firstTs, lastTs: s.lastTs, lastCallStart: s.lastCallStart, lastCallEnd: s.lastCallEnd, lastStop: s.lastStop, lastTool: s.lastTool,
     ctx: s.ctx, ttlMin: s.ttlMin, calls: s.calls, subCalls: s.subCalls, out: s.out, think: s.think, cacheRead: s.cacheRead, cacheWrite: s.cacheWrite,
     cost: s.cost, prompts: s.prompts, compacts: s.compacts, asks: s.asks, breakCost: s.breakCost,
     riskUsd, freshCost, costDelta: riskUsd - freshCost,
+    compactSaved: cg.saved, compactMs: cg.ms, compactDrift: cg.drift,
     tok: s.tok, activeMs: s.activeMs,
     comp: s.comp, toolTop: s.toolTop, compScale: s.compScale, advice: s.advice || null, sysTokens: s.sysTokens, sysSource: s.sysSource, cfgKey: s.cfgKey, projKey: s.projKey, byCause: s.byCause,
     continueThreshold,
