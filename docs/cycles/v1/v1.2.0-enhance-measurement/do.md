@@ -11,7 +11,7 @@
 | B-1 | 아카이브 의존 테스트 걷어내기 | 검증 완료 | R-1 |
 | B-2 | 사람이 친 입력이 다 세지게 | 검증 완료 | R-2 · R-3 |
 | B-3 | sys 사다리 철거 | 검증 완료 | R-4 · R-5 |
-| B-4 | 브릿지 재접속을 원인으로 보이기 | 미착수 | |
+| B-4 | 브릿지 재접속을 원인으로 보이기 | 구현 완료 | R-6 |
 
 ## 2. 진행
 
@@ -68,6 +68,20 @@
 | # | 확인된 것 | 조치 |
 |---|---|---|
 | 1 | V-1 통과 · V-2 통과(정성적 — 여러 세션에서 시스템 영역 시작 확인) | 없음 |
+
+### R-6 착수 · B-4
+
+| 항목 | 내용 |
+|---|---|
+| 한 일 | `case 'attachment'`의 `prefix:` 판정에 `readdedNames` 있는 `deferred_tools_delta`를 `bridge_reconnect`로 가르는 분기 추가. `index.html` `CAUSE_GROUPS`에 `bridge` 항목 추가. 픽스처 `bridge-readd.jsonl` · `bridge-added.jsonl`, `test/bridge-cause.test.js` 신설 |
+| 검증 | `node --test test/bridge-cause.test.js test/break-core.test.js test/shift-cause.test.js test/resume-cause.test.js test/breaks-cap.test.js` → 10건 통과 · 범위 밖 `node --test` → 39건 전부 통과 · `data/fishing` curl 확인 → `bridge_reconnect` n=3 · extra 5.43 · `deferred_tools_delta` 없음(설계 예측과 일치) |
+| 문제 · 조치 | — |
+| 결과 | 대기(육안) |
+
+| V | 확인 항목 | 어떻게 | 결과 |
+|---|---|---|---|
+| V-1 | 습관 순위표에 `브릿지 재접속`이 별도 줄·색(연두)으로 나온다 | `node server.js --dir <대상> --port <빈 포트>` 대시보드에서 습관 순위표 확인 | 대기 |
+| V-2 | 그래프 범례에도 `브릿지 재접속`이 별도 줄로 나온다 | 같은 대시보드에서 원인 범례 확인 | 대기 |
 
 ## 3. 결정
 

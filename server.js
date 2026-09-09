@@ -254,7 +254,11 @@ function handleRecord(f, d) {
       }
       return;
     case 'attachment':
-      if (d.attachment && PREFIX_EVENTS.has(d.attachment.type)) f.pending.push('prefix:' + d.attachment.type);
+      if (d.attachment && PREFIX_EVENTS.has(d.attachment.type)) {
+        const a = d.attachment;
+        const bridge = a.type === 'deferred_tools_delta' && Array.isArray(a.readdedNames) && a.readdedNames.length > 0;
+        f.pending.push('prefix:' + (bridge ? 'bridge_reconnect' : a.type));
+      }
       if (!f.isSub && d.attachment && d.attachment.type === 'queued_command') {
         const a = d.attachment;
         if (a.commandMode === 'prompt' && a.origin && a.origin.kind === 'human') {
