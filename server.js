@@ -384,7 +384,9 @@ function handleRecord(f, d) {
           const extra = rewrite * p.in * (mult - p.read) / 1e6;
           if (!f.isSub && cause === 'compact') s.compactSamples.push({ rewrite, extra, ctx: total }); // D-9. 압축 직후 실측(표시 전용)
           if (!FREE_CAUSES.has(cause)) s.breakCost += extra;
-          const bc = s.byCause[cause] = s.byCause[cause] || { n: 0, rewrite: 0, extra: 0 }; bc.n++; bc.rewrite += rewrite; bc.extra += extra;
+          const bc = s.byCause[cause] = s.byCause[cause] || { n: 0, rewrite: 0, extra: 0, sub: { n: 0, rewrite: 0, extra: 0 } };
+          bc.n++; bc.rewrite += rewrite; bc.extra += extra;
+          if (f.isSub) { bc.sub.n++; bc.sub.rewrite += rewrite; bc.sub.extra += extra; }
           if (!FREE_CAUSES.has(cause) && !f.isSub) { brokeNow = true; s.lastAvoidableBreakTs = ts; }
           s.breaks.push({ ts, a: activeAt(s, f, ts), cause, rewrite, extra, model: m.model, from: prev.model, effort: prev.effort + '→' + d.effort, sub: f.isSub, ctx: total,
             prevIn: prev.in, prevCr: prev.cr, prevTotal: prev.total, curIn: t.in, curCw: t.cw, curCr: t.cr,

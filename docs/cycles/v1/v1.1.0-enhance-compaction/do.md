@@ -11,7 +11,7 @@
 | B-1 | 검증 완료 | R-1 |
 | B-2 | 검증 완료 | R-2 |
 | B-3 | 검증 완료 | R-3 · R-4 · R-5 · R-6 · R-7 · R-8 · R-9 · R-10 · R-11 · R-12 · R-13 · R-14 · R-15 · R-16 · R-17 · R-18 · R-19 · R-20 |
-| B-4 | 미착수 | |
+| B-4 | 검증 완료 | R-21 |
 
 ## 2. 진행
 
@@ -242,6 +242,15 @@
 | 검증 | 육안 통과. R-18 확인표의 2x2 접힘·R-3의 압축 0회 세션 항목은 이번 스크린샷에 없어 미확인으로 남김(사용자 총평으로 배치 수락) |
 | 결과 | 검증 완료 |
 
+### R-21 착수 · B-4 byCause 서브 소계와 스크립트 집계
+
+| 항목 | 내용 |
+|---|---|
+| 한 일 | `server.js` `byCause` 누적에 `sub` 소계 추가. `scripts/diag-breaks.js`를 `byCause` 기반 `tableFromByCause(sessions, which)`로 교체, `main()`으로 감싸고 `require.main === module` 가드 + `module.exports` 추가. `test/fixtures/breaks-over60.jsonl`(동일 원인 ttl_expiry 브레이크 64건 생성, assistant 65콜) · `test/breaks-cap.test.js` 신설 |
+| 검증 | `node --test test/breaks-cap.test.js test/break-core.test.js test/shift-cause.test.js test/resume-cause.test.js` → 7/7 통과. `node scripts/diag-breaks.js --dir data/fishing --top 5` → 메인/서브 두 표 출력, 실데이터 세션당 최대 브레이크 수가 60 미만이라 절단 없이 이전 값과 일치(육안 확인) |
+| 문제 · 조치 | 없음 |
+| 결과 | 검증 완료 |
+
 ## 3. 결정
 
 | 배치 | 회차 | 정한 것 | 이유 |
@@ -258,6 +267,7 @@
 | B-3 | R-15 | 우측 스택 폭 220px 고정 | 좌측 정렬이면 경계선 = 스택의 왼쪽 끝인데, 폭이 내용을 따라가면 세션마다 선이 흔들린다(R-10 지적 재발). 스크린샷 기준 경계선~카드 오른쪽이 약 220px이고 가장 긴 줄("압축 절약 N건 · N시간 N분 걸렸어요")이 들어간다 |
 | B-3 | R-17 | 우측 스택 폭 200px | 실측 최장 줄("압축 절약 4건 · 11분 걸렸어요") 약 190px. 압축 소요가 1시간을 넘는 세션은 줄이 약 235px라 카드 여백(18px) 쪽으로 조금 넘칠 수 있으나 드물어 폭을 늘리지 않는다 |
 | B-3 | R-18 | 우측 스택 폭 160 대신 180px(R-19에서 사용자 재확인으로 160px로 정정). 2x2 접힘에서 스택은 세로 중앙·간격 고정 | 라벨 줄·금액 줄이 현재 폰트에서 약 183px라 160이면 카드 밖으로 넘친다. 접힘 모드에선 남는 높이가 커서 space-between이 두 칸을 찢는다. 4열 모드는 높이가 딱 맞아 center와 결과가 같다 |
+| B-4 | R-21 | `breaks-over60.jsonl`을 기존 픽스처를 본뜨는 대신 동일 파라미터 assistant 콜 65개 반복으로 새로 만듦(콜드 1개 + ttl_expiry 브레이크 64개) | design.md는 "기존 픽스처 구조를 본떠 반복 생성"만 지시. 매 콜 동일 usage(cw=40000, cr=0)로 이전 캐시를 매번 갱신 없이 재요청하게 하면 gapMin>5분마다 ttl_expiry가 결정적으로 재현되어, 원인 하나로 61건 이상을 가장 단순하게 만족한다 |
 
 ## 4. 질문
 
