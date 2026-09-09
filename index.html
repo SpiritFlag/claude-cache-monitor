@@ -106,6 +106,7 @@
   .legend .li b { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; }
   .advice { border-top:1px solid var(--line); padding-top:10px; display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px; }
   .advice b { color:var(--ok); font-family:var(--mono); } .advice.dim { color:var(--dim); font-size:12px; }
+  .advice.dim b { color:inherit; }
   .advice.strong { border-top-color:var(--ok); } .advice.strong b { color:var(--ok); }
   .advice button, .mh button { background:#2a3140; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12px; }
   .advice button:hover, .mh button:hover { background:#354055; }
@@ -379,13 +380,7 @@ function principleLine() {
 }
 function adviceLine(s) {
   const a = s.advice; if (!a) return '';
-  if (a.recommend) {
-    const msg = a.strong
-      ? `압축하면 순이득 <b>${usd(a.saving)}</b> (실비 ${usd(a.compactionCost)}) — 지금 하세요`
-      : `압축으로 순이득 <b>${usd(a.saving)}</b> (실비 ${usd(a.compactionCost)}) 아끼세요`;
-    return `<div class="advice${a.strong ? ' strong' : ''}"><span>${msg}</span><button onclick="openAdvice()">상세</button></div>`;
-  }
-  return `<div class="advice dim"><span>압축 이득 작음 (${fmtTok(a.dead)} 폐기물 · 손익분기 ${a.breakEven === null ? '∞' : a.breakEven + '호출'})</span><button onclick="openAdvice()">상세</button></div>`;
+  return `<div class="advice ${a.emphasize ? 'strong' : 'dim'}"><span>폐기물 <b>${fmtTok(a.dead)}</b> · 컨텍스트의 ${Math.round(100 * a.deadPct)}%</span><button onclick="openAdvice()">상세</button></div>`;
 }
 function openAdvice() {
   const s = state.sessions.find(x => x.id === selected); const a = s && s.advice; if (!a) return;
@@ -403,9 +398,8 @@ function openAdvice() {
       <li>지금 호출당 캐시 읽기 <b>${usd(a.perCallNow)}</b> → 압축 후 <b>${usd(a.perCallAfter)}</b> (예상 ${fmtTok(a.postCtx)})</li>
       <li>이 세션 턴당 평균 호출 <b>${a.callsPerTurn.toFixed(1)}</b>회 → 턴당 <b>${usd(a.perCallNow * a.callsPerTurn)}</b></li>
       <li>압축 비용 추정 <b>${usd(a.compactionCost)}</b> (요약 출력 ${fmtTok(a.summaryTokens)} + 재작성 ${fmtTok(a.rewriteTokens)} + 다시 읽기 ${fmtTok(a.regrowthTokens)}, 고정값)</li>
-      <li>손익분기 <b>${a.breakEven === null ? '∞' : a.breakEven + '호출'}</b> · 앞으로 ${a.horizon}호출 기준 순절감 <b style="color:${a.saving > 0 ? 'var(--ok)' : 'var(--bad)'}">${usd(a.saving)}</b></li>
     </ul>
-    <div class="sub">추천 조건: 컨텍스트 100k 초과이고 순절감이 압축 비용보다 크면서, 폐기물 25% 이상 또는 손익분기 15호출 이하. 압축은 캐시가 살아있을 때 해야 함(만료 후 압축은 그 호출이 전체를 다시 씀).</div>
+    <div class="sub">강조 조건: 컨텍스트가 이어가기 임계(${fmtTok(s.continueThreshold)})를 넘고 폐기물이 50% 이상일 때. 압축은 캐시가 살아있을 때 해야 함(만료 후 압축은 그 호출이 전체를 다시 씀).</div>
     ${calNote()}
   </div>`;
   $('#modal').hidden = false;

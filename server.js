@@ -166,7 +166,7 @@ function resolveSys(s, ctx) {
 }
 // D-8. 압축 비용 고정 상수. 폴더 · 사용자가 무엇이든 이 값이다(CAL 실측과 분리)
 const COMPACT = { summary: 20000, rewrite: 55000, regrowth: 60000 };
-const STRONG_RATIO = 3; // D-10. 순이득이 압축 실비의 이 배수를 넘으면 톤을 강화한다(잠정치)
+const continueThresholdOf = s => (s.sysTokens || CAL.sys) + CAL.regrowth;
 function compactAdvice(f, s, total, scale) {
   const lastRead = {}; for (const r of f.results) if (r.name === 'Read' && r.path) lastRead[r.path] = r.idx;
   let dupRead = 0, staleRead = 0, oldResults = 0, dupN = 0, staleN = 0, oldN = 0;
@@ -182,16 +182,11 @@ function compactAdvice(f, s, total, scale) {
   const postCtx = Math.min(total, s.sysTokens + COMPACT.summary);
   const perCallNow = total * p.in * p.read / 1e6, perCallAfter = postCtx * p.in * p.read / 1e6;
   const compactionCost = (COMPACT.summary * p.out + COMPACT.rewrite * p.in * 2 + COMPACT.regrowth * p.in * 2) / 1e6;
-  const perCallSave = Math.max(0, perCallNow - perCallAfter);
-  const breakEven = perCallSave > 0 ? Math.ceil(compactionCost / perCallSave) : Infinity;
   const callsPerTurn = s.prompts ? s.calls / s.prompts : 10;
-  const horizon = 50;
-  const saving = perCallSave * horizon - compactionCost;
-  const recommend = total > 100000 && saving > compactionCost && (dead / total > 0.25 || breakEven <= 15); // saving must at least double the compaction cost
   return { dead, dupRead: tok(dupRead), staleRead: tok(staleRead), oldResults: tok(oldResults), dupN, staleN, oldN, deadPct: total ? dead / total : 0,
-    perCallNow, perCallAfter, compactionCost, breakEven, callsPerTurn, horizon, saving, postCtx,
+    perCallNow, perCallAfter, compactionCost, callsPerTurn, postCtx,
     summaryTokens: COMPACT.summary, rewriteTokens: COMPACT.rewrite, regrowthTokens: COMPACT.regrowth,
-    recommend, strong: recommend && saving >= compactionCost * STRONG_RATIO };
+    emphasize: total > continueThresholdOf(s) && (total ? dead / total : 0) >= 0.5 };
 }
 
 function scaledComp(f, total, sys) {
@@ -434,7 +429,7 @@ function snapshot() {
   const now = Date.now();
   const list = [...sessions.values()].filter(s => s.calls > 0).sort((a, b) => b.lastTs - a.lastTs).map(s => {
     const p = price(s.model);
-    const continueThreshold = (s.sysTokens || CAL.sys) + CAL.regrowth;
+    const continueThreshold = continueThresholdOf(s);
     const riskUsd = s.ctx * p.in * 2 / 1e6;
     // D-12. freshCost: 새 세션에서 바닥+다시읽기까지 다시 쓰는 비용. costDelta 양수면 새 세션이 싸다
     const freshCost = continueThreshold * p.in * 2 / 1e6;
