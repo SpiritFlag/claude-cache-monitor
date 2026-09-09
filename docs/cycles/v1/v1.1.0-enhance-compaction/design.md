@@ -177,23 +177,16 @@
   const dur = ms => { const m = Math.round((ms || 0) / 60e3); return m < 60 ? m + '분' : Math.floor(m / 60) + '시간 ' + (m % 60) + '분'; };
   ```
   ```html
-  <!-- index.html — do B-3 R-10: cost-mid를 cost-cols(가로 2열)로 나눈다.
-       1열(cost-head, 원래 마크업 그대로): 이 세션·오늘 누적 좌우 나란히.
-       2열(cost-col2, 고정폭 세로 스택): 압축 절약 위 · 캐시 깨짐 손실 아래.
-       각 칸의 소제목(<span>) 옆에 cost-k-h로 건수·소요시간을 붙이고,
-       $금액 줄에는 <small>아꼈어요/잃었어요</small>만 남긴다.
-       압축 0회 세션도 "압축 절약" cost-k는 계속 렌더링하되 visibility:hidden으로
-       감춰 2열 세로 크기가 항상 2칸 분량으로 고정되게 한다(카드 높이 안정).
-       (R-4 Q-1 · R-5 는 한 줄 4칸, R-6 은 2행, R-7 은 $금액 아래 .sub 줄, R-8 에서
-        건수·소요시간이 소제목 옆으로, R-9 는 1열 center 정렬 시도였으나 R-10 에서
-        1열 라벨 정렬이 다시 어긋나 flex-start로 되돌리고 2열 폭을 고정폭으로 바꿨다) -->
-  <div class="cost-cols">
-    <div class="cost-head">
-      <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
-      <div class="vsep"></div>
-      <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
-    </div>
-    <div class="cost-col2">
+  <!-- index.html — do B-3 R-12: 변경 전 cost-head(한 줄 · 바닥 정렬)를 그대로 두고,
+       원래 우측 "캐시 깨짐 손실" 자리(margin-left:auto · 우측 정렬)를 cost-right 세로 스택으로 바꿔
+       "압축 절약"을 그 위에 얹는다. 칸 형식은 R-8 그대로(소제목 옆 건수·소요시간, $금액 옆 아꼈어요/잃었어요).
+       압축 0회 세션도 "압축 절약" cost-k는 visibility:hidden으로 남겨 카드 높이를 고정한다(R-10 요청).
+       (R-7~R-11의 2열 레이아웃은 폐기 — 사용자가 변경 전 박스를 기준으로 삼았다) -->
+  <div class="cost-head">
+    <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
+    <div class="vsep"></div>
+    <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
+    <div class="cost-right">
       <div class="cost-k" style="${s.compacts > 0 ? '' : 'visibility:hidden'}"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>
       <div class="cost-k"><div class="cost-k-h"><span>캐시 깨짐 손실</span><small>${sumCauses(s.byCause, LOSS_CAUSES).n}건</small></div><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div></div>
     </div>
@@ -208,11 +201,11 @@
   do B-3 R-8: 소제목+건수·소요시간 한 줄 스타일 신설.
     .cost-k-h { display:flex; align-items:baseline; gap:8px; }
     .cost-k-h small { font-size:11px; color:var(--dim); font-weight:400; white-space:nowrap; }
-  do B-3 R-11: 2열은 grid 트랙으로 고정한다. flex-wrap 이 있으면 카드 폭(1fr 열에서 약 680px)에서
-    2열이 아래로 떨어져 "우측 2열"이 성립하지 않는다. minmax(0,1fr) 로 1열이 커져도 2열 트랙 위치가 밀리지 않는다.
-    .cost-cols { display:grid; grid-template-columns:minmax(0,1fr) 240px; column-gap:24px; align-items:start; }
-    .cost-head { display:flex; align-items:flex-start; gap:18px; }
-    .cost-col2 { display:flex; flex-direction:column; gap:12px; }
+  do B-3 R-12: 변경 전 한 줄 바닥 정렬로 복귀하고, 우측 칸만 세로 스택으로.
+    .cost-head { display:flex; align-items:flex-end; gap:18px; }
+    .cost-right { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; text-align:right; gap:12px; }
+    .cost-right .cost-k { align-items:flex-end; }
+    (.cost-cols · .cost-col2 는 삭제)
   ```
 - 순서: `LOSS_CAUSES` → `dur()` → CSS → 마크업 교체
 - 검증
