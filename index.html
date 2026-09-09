@@ -60,7 +60,7 @@
   .cost-mid { flex:1; display:flex; gap:18px; }
   .cost-lcol { flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; }
   .cost-left { margin:auto 0; display:flex; align-items:flex-end; gap:18px; }
-  .cost-right { width:200px; flex-shrink:0; display:flex; flex-direction:column; justify-content:space-between; align-items:flex-start; text-align:left; gap:12px; }
+  .cost-right { width:180px; flex-shrink:0; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; text-align:left; gap:12px; }
   .cost-foot { display:flex; flex-direction:column; gap:10px; }
   .cost-k { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
   .cost-k span { font-size:11px; color:var(--dim); }
@@ -162,7 +162,7 @@
 const $ = s => document.querySelector(s);
 const fmtTok = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(Math.round(n||0));
 const usd = n => '$' + (n||0).toFixed(2);
-const dur = ms => { const m = Math.round((ms || 0) / 60e3); return m < 60 ? m + '분' : Math.floor(m / 60) + '시간 ' + (m % 60) + '분'; };
+const dur = ms => Math.round((ms || 0) / 60e3) + '분';   // 항상 분 단위(72분). 시간 넘는 압축은 드물어 폭을 안 늘린다
 const short = m => (m||'').replace('claude-','').replace('-4-5-20251001','');
 const ago = ms => { if (ms < 60e3) return Math.floor(ms/1000)+'s'; if (ms < 3600e3) return Math.floor(ms/60e3)+'m'; if (ms < 86400e3) return (ms/3600e3).toFixed(1)+'h'; return (ms/86400e3).toFixed(1)+'d'; };
 const DAY_SHIFT = 4 * 3600e3;
