@@ -177,16 +177,14 @@
   const dur = ms => { const m = Math.round((ms || 0) / 60e3); return m < 60 ? m + '분' : Math.floor(m / 60) + '시간 ' + (m % 60) + '분'; };
   ```
   ```html
-  <!-- index.html — cost-head 안, "오늘 누적" 칸과 "캐시 깨짐 손실" 칸 사이에 절약 칸을 넣고
-       손실 칸의 건수 표현을 바꾼다. 나머지 칸과 vsep 은 그대로 둔다.
-       do B-3 R-4 Q-1: 소요 시간을 <small>에 같이 넣으면 손실 칸(N건)보다 텍스트가 길어 좁은 칸에서 줄바꿈된다.
-       작은 칸은 손실 칸과 같은 "N건" 형식으로 맞추고, 소요 시간은 cost-head 아래 별도 줄로 뺀다.
-       do B-3 R-5: flex-shrink로 칸이 좁아지면 숫자-한글 경계에서도 줄바꿈된다(white-space 미지정).
-       CSS로 근본 수정하고, 문구를 "N건 잃었어요" · "N분 걸려서 아꼈어요"로 정함(캐릭터 말투). -->
-  ${s.compacts > 0 ? `<div class="cost-k"><span>압축 절약</span><div class="mid ok">${usd(s.compactSaved)} <small>${s.compacts}건</small></div></div>` : ''}
-  <div class="cost-k right"><span>캐시 깨짐 손실</span><div class="mid bad">${usd(s.breakCost)} <small>${sumCauses(s.byCause, LOSS_CAUSES).n}건 잃었어요</small></div></div>
-  <!-- cost-head 밑, cost-mid 안에서 닫는 태그 앞에 소요 시간 줄 추가 -->
-  ${s.compacts > 0 ? `<div class="sub" style="margin-top:6px">${dur(s.compactMs)} 걸려서 아꼈어요</div>` : ''}
+  <!-- index.html — do B-3 R-6: cost-head를 두 줄로 나눈다. 1행 이 세션·오늘 누적(원위치),
+       2행 압축 절약·캐시 깨짐 손실. 각 칸은 금액+단어(<small>아꼈어요/잃었어요</small>) 다음 줄에
+       .sub로 건수(절약 칸은 "N건 · N분 걸렸어요")를 보인다.
+       (R-4 Q-1 · R-5 는 한 줄 4칸 시도였고 정렬이 계속 어긋나 R-6 에서 2행으로 바뀌었다) -->
+  <div class="cost-head cost-head2">
+    ${s.compacts > 0 ? `<div class="cost-k"><span>압축 절약</span><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div><div class="sub">${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</div></div>` : ''}
+    <div class="cost-k right"><span>캐시 깨짐 손실</span><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div><div class="sub">${sumCauses(s.byCause, LOSS_CAUSES).n}건</div></div>
+  </div>
   ```
   ```
   index.html CSS — .cost-k .mid.bad 규칙 옆에 한 줄 추가:
@@ -195,6 +193,8 @@
     .cost-head { display:flex; align-items:flex-end; gap:18px; flex-wrap:wrap; row-gap:14px; }
     .cost-k { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
     .cost-k .mid { font:600 26px/1 var(--mono); color:var(--dim); padding-bottom:2px; white-space:nowrap; }
+  do B-3 R-6: 2행 여백 한 줄 추가.
+    .cost-head2 { margin-top:14px; }
   ```
 - 순서: `LOSS_CAUSES` → `dur()` → CSS → 마크업 교체
 - 검증
