@@ -65,6 +65,7 @@
   .cost-k .big { font:700 44px/1 var(--mono); letter-spacing:-.02em; }
   .cost-k .mid { font:600 26px/1 var(--mono); color:var(--dim); padding-bottom:2px; }
   .cost-k .mid.bad { color:var(--bad); }
+  .cost-k .mid.ok { color:var(--ok); }
   .cost-k .mid small { font-size:12px; color:var(--dim); font-weight:400; }
   .cost-k.right { margin-left:auto; align-items:flex-end; text-align:right; }
   .vsep { width:1px; align-self:stretch; background:var(--line); }
@@ -158,6 +159,7 @@
 const $ = s => document.querySelector(s);
 const fmtTok = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(Math.round(n||0));
 const usd = n => '$' + (n||0).toFixed(2);
+const dur = ms => { const m = Math.round((ms || 0) / 60e3); return m < 60 ? m + '분' : Math.floor(m / 60) + '시간 ' + (m % 60) + '분'; };
 const short = m => (m||'').replace('claude-','').replace('-4-5-20251001','');
 const ago = ms => { if (ms < 60e3) return Math.floor(ms/1000)+'s'; if (ms < 3600e3) return Math.floor(ms/60e3)+'m'; if (ms < 86400e3) return (ms/3600e3).toFixed(1)+'h'; return (ms/86400e3).toFixed(1)+'d'; };
 const DAY_SHIFT = 4 * 3600e3;
@@ -266,7 +268,8 @@ function renderMain() {
             <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
             <div class="vsep"></div>
             <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
-            <div class="cost-k right"><span>캐시 깨짐 손실</span><div class="mid bad">${usd(s.breakCost)} <small>${d.breaks.length}건</small></div></div>
+            ${s.compacts > 0 ? `<div class="cost-k"><span>압축 절약</span><div class="mid ok">${usd(s.compactSaved)} <small>${dur(s.compactMs)} 걸렸어요</small></div></div>` : ''}
+            <div class="cost-k right"><span>캐시 깨짐 손실</span><div class="mid bad">${usd(s.breakCost)} <small>${sumCauses(s.byCause, LOSS_CAUSES).n}건</small></div></div>
           </div>
         </div>
         <div class="cost-foot">
@@ -366,6 +369,7 @@ const causeGroup = c => CAUSE_OF[c] || CAUSE_OF.unexplained;   // 모르는 키�
 const causeColor = c => causeGroup(c).color;
 const HABITS = CAUSE_GROUPS.filter(g => !g.free).map(g => [g.label, g.causes]);   // 기존 6줄과 같은 내용
 const FREE_CAUSES = CAUSE_GROUPS.filter(g => g.free).flatMap(g => g.causes);      // habitsCard의 free 줄
+const LOSS_CAUSES = CAUSE_GROUPS.filter(g => !g.free).flatMap(g => g.causes);
 function sumCauses(byCause, causes) { const r = { n: 0, extra: 0, rewrite: 0 }; for (const c of causes) { const v = byCause && byCause[c]; if (v) { r.n += v.n; r.extra += v.extra; r.rewrite += v.rewrite; } } return r; }
 function habitsCard(s) {
   const all = {}; for (const x of state.sessions) for (const [c, v] of Object.entries(x.byCause || {})) { const a = all[c] = all[c] || { n: 0, extra: 0, rewrite: 0 }; a.n += v.n; a.extra += v.extra; a.rewrite += v.rewrite; }
