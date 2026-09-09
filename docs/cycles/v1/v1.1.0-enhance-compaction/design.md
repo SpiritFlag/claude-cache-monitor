@@ -177,12 +177,13 @@
   const dur = ms => { const m = Math.round((ms || 0) / 60e3); return m < 60 ? m + '분' : Math.floor(m / 60) + '시간 ' + (m % 60) + '분'; };
   ```
   ```html
-  <!-- index.html — do B-3 R-7: cost-mid를 cost-cols(가로 2열)로 나눈다.
+  <!-- index.html — do B-3 R-8: cost-mid를 cost-cols(가로 2열)로 나눈다.
        1열(cost-head, 원래 마크업 그대로): 이 세션·오늘 누적 좌우 나란히.
-       2열(신설 cost-col2, 세로 스택): 압축 절약 위 · 캐시 깨짐 손실 아래.
-       각 칸은 금액+단어(<small>아꼈어요/잃었어요</small>) 다음 줄에 .sub로 건수
-       (절약 칸은 "N건 · N분 걸렸어요")를 보인다.
-       (R-4 Q-1 · R-5 는 한 줄 4칸, R-6 은 2행 분리였고 R-7 에서 2열로 바뀌었다) -->
+       2열(cost-col2, 세로 스택): 압축 절약 위 · 캐시 깨짐 손실 아래.
+       각 칸의 소제목(<span>) 옆에 cost-k-h로 건수·소요시간을 붙이고,
+       $금액 줄에는 <small>아꼈어요/잃었어요</small>만 남긴다.
+       (R-4 Q-1 · R-5 는 한 줄 4칸, R-6 은 2행, R-7 은 $금액 아래 .sub 줄이었고
+        R-8 에서 건수·소요시간이 소제목 옆으로 옮겨졌다) -->
   <div class="cost-cols">
     <div class="cost-head">
       <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
@@ -190,8 +191,8 @@
       <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
     </div>
     <div class="cost-col2">
-      ${s.compacts > 0 ? `<div class="cost-k"><span>압축 절약</span><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div><div class="sub">${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</div></div>` : ''}
-      <div class="cost-k"><span>캐시 깨짐 손실</span><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div><div class="sub">${sumCauses(s.byCause, LOSS_CAUSES).n}건</div></div>
+      ${s.compacts > 0 ? `<div class="cost-k"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>` : ''}
+      <div class="cost-k"><div class="cost-k-h"><span>캐시 깨짐 손실</span><small>${sumCauses(s.byCause, LOSS_CAUSES).n}건</small></div><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div></div>
     </div>
   </div>
   ```
@@ -205,6 +206,9 @@
     .cost-cols { display:flex; align-items:flex-start; gap:32px; flex-wrap:wrap; row-gap:14px; }
     .cost-head { display:flex; align-items:flex-end; gap:18px; }
     .cost-col2 { display:flex; flex-direction:column; gap:12px; }
+  do B-3 R-8: 소제목+건수·소요시간 한 줄 스타일 신설.
+    .cost-k-h { display:flex; align-items:baseline; gap:8px; }
+    .cost-k-h small { font-size:11px; color:var(--dim); font-weight:400; white-space:nowrap; }
   ```
 - 순서: `LOSS_CAUSES` → `dur()` → CSS → 마크업 교체
 - 검증
