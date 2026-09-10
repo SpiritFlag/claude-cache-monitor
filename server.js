@@ -23,6 +23,11 @@ const PRICE = {
 const price = (m) => PRICE[m] || { in: 5, out: 25, read: 0.1 };
 const PREFIX_EVENTS = new Set(['deferred_tools_delta', 'mcp_instructions_delta', 'agent_listing_delta', 'skill_listing', 'date_change', 'auto_mode', 'auto_mode_exit', 'nested_memory', 'invoked_skills']);
 const RESUME_RE = /continue from where you left off/i;
+// 사람이 친 것처럼 user 레코드에 실리지만 도구가 넣는 text 블록. 본문 첫머리의 태그 이름으로 가른다.
+// 클로드 코드가 태그 이름을 바꾸면 여기만 고친다 (v1.3.0 plan §1.4 · D-3).
+const NOISE_TAGS = ['task-notification', 'ide_opened_file', 'ide_selection'];
+const NOISE_RE = new RegExp('^\\s*<(' + NOISE_TAGS.join('|') + ')[\\s>]');
+const isNoise = b => !!b && b.type === 'text' && NOISE_RE.test(b.text || '');
 // 실측 근거(v0.1.2 do §3, 2026-08 아카이브 한 달): breakpoint_shift 5건의 rewrite 최대 18,708 · |rewrite-shrink| 최대 2,753,
 // effort_change 135건 중 124건이 |rewrite-shrink| ≤ 3,000이고 rewrite 최소는 25,140.
 // 두 원인을 실제로 가르는 것은 MAX_REWRITE 하나이고 여유는 위 5,140 · 아래 1,292다. 표본 5건이라 값은 유지한다.
@@ -42,7 +47,7 @@ function session(id) {
       id, title: '', cwd: '', entry: '', model: '', effort: '', skill: '', mode: '',
       firstTs: 0, lastTs: 0, lastCallStart: 0, lastCallEnd: 0, lastStop: '', lastTool: '',
       ctx: 0, ttlMin: 5, calls: 0, subCalls: 0, out: 0, think: 0, cacheRead: 0, cacheWrite: 0, cost: 0,
-      prompts: 0, compacts: 0, asks: 0, series: [], breaks: [], breakCost: 0, subActive: 0,
+      prompts: 0, compacts: 0, asks: 0, series: [], breaks: [], breakCost: 0, subActive: 0, subs: new Map(),
       tok: { in: 0, cw1h: 0, cw5m: 0, cwOther: 0, cr: 0, out: 0 }, modelCalls: {},
       activeMs: 0, days: {}, lastA: 0, promptMarks: [],
       sysTokens: 0, sysSet: false, comp: null, toolTop: [], compScale: 0,
@@ -54,6 +59,30 @@ function session(id) {
   }
   return s;
 }
+
+// 서브에이전트 하나의 집계 슬롯. 세션과 같은 이름의 필드를 쓰되 세션 전용(프롬프트·압축·조언·캐릭터)은 없다.
+function subSlot(s, f) {
+  let x = s.subs.get(f.agentId);
+  if (!x) {
+    x = { id: f.agentId, name: '', agentType: '', depth: 0, named: false,
+      firstTs: 0, lastTs: 0, model: '', effort: '', ctx: 0, ttlMin: 5, lastStop: '', lastTool: '',
+      calls: 0, out: 0, think: 0, cacheRead: 0, cacheWrite: 0, cost: 0, compacts: 0, asks: 0, saved: 0,
+      tok: { in: 0, cw1h: 0, cw5m: 0, cwOther: 0, cr: 0, out: 0 }, modelCalls: {},
+      activeMs: 0, lastA: 0, series: [], breaks: [], breakCost: 0, byCause: {} };
+    s.subs.set(f.agentId, x);
+  }
+  if (!x.named && f.meta) nameSub(x, f.meta);
+  return x;
+}
+// description → agentType → id. 없는 필드는 건너뛴다.
+function nameSub(x, meta) {
+  x.named = true;
+  x.name = meta.description || meta.agentType || x.id;
+  x.agentType = meta.agentType || '';
+  x.depth = meta.spawnDepth || 1;
+}
+// 이 파일의 값이 쌓이는 그릇. 메인 파일은 세션 자신.
+const targetOf = (s, f) => f.isSub ? subSlot(s, f) : s;
 
 function tokensOf(u) {
   const cc = u.cache_creation || {};
@@ -186,23 +215,24 @@ function addDay(s, ts, ms, cost) {
 
 // 세션 시작부터의 활성 누적 ms. flushGroup을 다시 부르지 않고 열린 그룹만 얹는다.
 // 활성 판정에서 빠지는 줄(사이드체인)도 시리즈에는 실리므로(F-4) 단조가 되게 고정한다.
-function activeAt(s, f, ts) {
-  const a = s.activeMs + (f.grp && f.grp.lastTs === ts ? ts - f.grp.prevTs : 0);
-  return s.lastA = Math.max(s.lastA || 0, a);
+function activeAt(g, f, ts) {
+  const a = g.activeMs + (f.grp && f.grp.lastTs === ts ? ts - f.grp.prevTs : 0);
+  return g.lastA = Math.max(g.lastA || 0, a);
 }
 
 // 열린 그룹을 확정한다. 중간에 끊겨도 다음 그룹의 prevTs가 여기 lastTs가 되어 합이 보존된다.
 function flushGroup(f) {
-  const g = f.grp; if (!g) return;
-  f.grp = null; f.actPrevTs = g.lastTs;
+  const grp = f.grp; if (!grp) return;
+  f.grp = null; f.actPrevTs = grp.lastTs;
   const s = sessions.get(f.sessionId); if (!s) return;
-  const ms = Math.max(0, g.lastTs - g.prevTs);
-  s.activeMs += ms; addDay(s, g.lastTs, ms, g.cost);
+  const g = targetOf(s, f);
+  const ms = Math.max(0, grp.lastTs - grp.prevTs);
+  g.activeMs += ms; addDay(s, grp.lastTs, ms, grp.cost);   // D-2: 서브의 활성·비용도 세션의 일별 버킷(=폴더 합계)에 들어간다
 }
 
 // handleRecord에서 부른다. 활성시간에서 사이드체인을 제외한다(D-7).
 function trackActive(f, d, ts) {
-  if (f.isSub || d.isSidechain === true) return;
+  if (!f.isSub && d.isSidechain === true) return;   // 사이드체인 제외(D-7, v1.1.0)는 메인 파일 안의 줄에만. 서브 파일은 모든 줄이 isSidechain
   if (!ts) return;                          // 시각 없는 top-level 이벤트는 영향이 없다 (SC-8)
   const m = d.message;
   const real = d.type === 'assistant' && m && m.usage && m.model !== '<synthetic>';
@@ -217,10 +247,9 @@ function trackActive(f, d, ts) {
 function folderTotals() {
   const days = {}; let activeMs = 0, cost = 0;
   for (const s of sessions.values()) {
-    activeMs += s.activeMs;
     for (const k of Object.keys(s.days)) {
       const b = s.days[k], t = days[k] || (days[k] = { activeMs: 0, cost: 0 });
-      t.activeMs += b.activeMs; t.cost += b.cost; cost += b.cost;
+      t.activeMs += b.activeMs; t.cost += b.cost; activeMs += b.activeMs; cost += b.cost;
     }
   }
   return { activeMs, cost, days };
@@ -232,8 +261,10 @@ function handleRecord(f, d) {
   if (d.sessionId) f.sessionId = d.sessionId;
   if (!f.sessionId) return;
   const s = session(f.sessionId);
+  const g = targetOf(s, f);
   const ts = d.timestamp ? Date.parse(d.timestamp) : 0;
   if (ts) { if (!s.firstTs || ts < s.firstTs) s.firstTs = ts; if (ts > s.lastTs) s.lastTs = ts; }
+  if (ts && f.isSub) { if (!g.firstTs || ts < g.firstTs) g.firstTs = ts; if (ts > g.lastTs) g.lastTs = ts; }
   trackActive(f, d, ts);
 
   switch (d.type) {
@@ -242,7 +273,7 @@ function handleRecord(f, d) {
     case 'mode': s.mode = d.mode; return;
     case 'system':
       if (d.subtype === 'compact_boundary') {
-        s.compacts++; f.pending.push('compact');
+        g.compacts++; f.pending.push('compact');
         const cm = d.compactMetadata;
         if (cm) {
           if (cm.postTokens != null) f.compactPost = cm.postTokens;
@@ -277,14 +308,16 @@ function handleRecord(f, d) {
       const c = d.message && d.message.content;
       if (d.isMeta && RESUME_RE.test(markerText(c))) f.pending.push('resume');
       const askAnswer = !f.isSub && Array.isArray(c) && c.some(b => b.type === 'tool_result' && f.askIds.has(b.tool_use_id));
-      const human = askAnswer || (!d.isMeta && !f.isSub && (typeof c === 'string' || (Array.isArray(c) && c.every(b => b.type === 'text' || b.type === 'image'))));
+      const blocks = typeof c === 'string' ? [{ type: 'text', text: c }] : Array.isArray(c) ? c : null;
+      const own = blocks ? blocks.filter(b => !isNoise(b)) : null;          // 잡음 블록을 뺀 사람 몫
+      const human = askAnswer || (!d.isMeta && !f.isSub && !!own && own.length > 0 && own.every(b => b.type === 'text' || b.type === 'image'));
       if (human) { s.prompts++; if (ts) s.promptMarks.push({ t: ts, a: activeAt(s, f, ts) }); }
       if (askAnswer) s.pendingAsk = false;
       if (!f.isSub && c !== undefined) {
         if (d.isCompactSummary) { f.comp = newComp(); f.toolChars = {}; f.results = []; f.edited = {}; f.comp.summary += blockLen(c); }
-        else if (typeof c === 'string') { f.comp[d.isMeta ? 'reminders' : 'user'] += c.length; }
+        else if (typeof c === 'string') { f.comp[d.isMeta || NOISE_RE.test(c) ? 'reminders' : 'user'] += c.length; }
         else if (Array.isArray(c)) for (const b of c) {
-          if (b.type === 'text') f.comp[d.isMeta ? 'reminders' : 'user'] += (b.text || '').length;
+          if (b.type === 'text') f.comp[d.isMeta || isNoise(b) ? 'reminders' : 'user'] += (b.text || '').length;
           else if (b.type === 'image') f.comp.images += IMAGE_CHARS;
           else if (b.type === 'tool_result') { const n = blockLen(b.content); f.comp.toolResult += n; const tn = f.toolNames[b.tool_use_id] || { name: '?' }; f.toolChars[tn.name] = (f.toolChars[tn.name] || 0) + n; f.results.push({ idx: f.callIdx, name: tn.name, path: tn.path, chars: n }); }
         }
@@ -295,7 +328,7 @@ function handleRecord(f, d) {
       const m = d.message; if (!m || !m.usage || m.model === '<synthetic>') return;
       if (Array.isArray(m.content)) for (const b of m.content) {
         if (b.type === 'tool_use') {
-          s.lastTool = b.name; if (b.name === 'AskUserQuestion') { s.asks++; if (!f.isSub) s.pendingAsk = true; f.askIds.add(b.id); }
+          g.lastTool = b.name; if (b.name === 'AskUserQuestion') { g.asks++; if (!f.isSub) s.pendingAsk = true; f.askIds.add(b.id); }
           if (!f.isSub) {
             const fp = b.input && b.input.file_path ? String(b.input.file_path).replace(/\\/g, '/').toLowerCase() : undefined;
             f.toolNames[b.id] = { name: b.name, path: fp }; f.comp.toolInput += JSON.stringify(b.input || {}).length;
@@ -308,15 +341,16 @@ function handleRecord(f, d) {
       if (f.seen.has(m.id)) return; f.seen.add(m.id);
       const t = tokensOf(m.usage); const total = t.in + t.cw + t.cr;
       const cost = callCost(m.model, t);
-      s.cost += cost; if (f.grp) f.grp.cost += cost; else addDay(s, ts, 0, cost);
-      s.out += t.out; s.think += t.think; s.cacheRead += t.cr; s.cacheWrite += t.cw;
-      s.tok.in += t.in; s.tok.cw1h += t.cw1h; s.tok.cw5m += t.cw5m; s.tok.cwOther += Math.max(0, t.cw - t.cw1h - t.cw5m); s.tok.cr += t.cr; s.tok.out += t.out;
-      s.modelCalls[m.model] = (s.modelCalls[m.model] || 0) + 1;
-      { const pp = price(m.model); s.saved += t.cr * pp.in * (1 - pp.read) / 1e6; } // what caching saved vs. paying list price for those tokens
+      g.cost += cost; if (f.grp) f.grp.cost += cost; else addDay(s, ts, 0, cost);
+      g.out += t.out; g.think += t.think; g.cacheRead += t.cr; g.cacheWrite += t.cw;
+      g.tok.in += t.in; g.tok.cw1h += t.cw1h; g.tok.cw5m += t.cw5m; g.tok.cwOther += Math.max(0, t.cw - t.cw1h - t.cw5m); g.tok.cr += t.cr; g.tok.out += t.out;
+      g.modelCalls[m.model] = (g.modelCalls[m.model] || 0) + 1;
+      { const pp = price(m.model); g.saved += t.cr * pp.in * (1 - pp.read) / 1e6; } // what caching saved vs. paying list price for those tokens
       if (ts) { const h = (new Date(ts).getUTCHours() + 9) % 24; if (h >= 19 || h < 6) s.lateCalls++; if (h < 6) s.nightCalls++; }
       let brokeNow = false;
-      if (f.isSub) { s.subCalls++; s.subActive = ts; } else { s.calls++; }
-      if (t.cw1h > 0) s.ttlMin = 60; else if (t.cw5m > 0 && t.cw1h === 0 && s.calls <= 1) s.ttlMin = 5;
+      if (f.isSub) { s.subCalls++; s.subActive = ts; g.calls++; } else { s.calls++; }
+      const ttlNow = t.cw1h > 0 ? 60 : t.cw5m > 0 ? 5 : (f.prev ? f.prev.ttlMin : s.ttlMin);   // D-6: 이 호출이 캐시에 쓴 TTL. 안 썼으면 직전을 잇는다
+      if (!f.isSub) { if (t.cw1h > 0) s.ttlMin = 60; else if (t.cw5m > 0 && t.cw1h === 0 && s.calls <= 1) s.ttlMin = 5; } else g.ttlMin = ttlNow;
       const prev = f.prev; const events = f.pending; f.pending = [];
       if (prev) {
         // tokens that should have been cache hits, capped at what was actually written this call (compaction shrinks the context)
@@ -330,7 +364,7 @@ function handleRecord(f, d) {
           let cause;
           if (m.model !== prev.model) cause = 'model_switch';
           else if (events.includes('compact')) cause = 'compact';
-          else if (gapMin > (s.ttlMin === 60 ? 60 : 5)) cause = 'ttl_expiry';
+          else if (gapMin > (prev.ttlMin === 60 ? 60 : 5)) cause = 'ttl_expiry';
           else if (events.includes('resume')) cause = 'session_resume';
           else if (shrink > 0 && Math.abs(rewrite - shrink) <= BP_SHRINK_SLACK && rewrite < BP_MAX_REWRITE) cause = 'breakpoint_shift';
           else if (d.effort !== prev.effort) cause = 'effort_change';
@@ -338,19 +372,22 @@ function handleRecord(f, d) {
           const p = price(m.model); const mult = t.cw1h > 0 ? 2 : 1.25;
           const extra = rewrite * p.in * (mult - p.read) / 1e6;
           if (!f.isSub && cause === 'compact') s.compactSamples.push({ rewrite, extra, ctx: total }); // D-9. 압축 직후 실측(표시 전용)
-          if (!FREE_CAUSES.has(cause)) s.breakCost += extra;
-          const bc = s.byCause[cause] = s.byCause[cause] || { n: 0, rewrite: 0, extra: 0, sub: { n: 0, rewrite: 0, extra: 0 } };
+          if (!FREE_CAUSES.has(cause)) g.breakCost += extra;
+          const bc = g.byCause[cause] = g.byCause[cause] || { n: 0, rewrite: 0, extra: 0 };
           bc.n++; bc.rewrite += rewrite; bc.extra += extra;
-          if (f.isSub) { bc.sub.n++; bc.sub.rewrite += rewrite; bc.sub.extra += extra; }
           if (!FREE_CAUSES.has(cause) && !f.isSub) { brokeNow = true; s.lastAvoidableBreakTs = ts; }
-          s.breaks.push({ ts, a: activeAt(s, f, ts), cause, rewrite, extra, model: m.model, from: prev.model, effort: prev.effort + '→' + d.effort, sub: f.isSub, ctx: total,
+          g.breaks.push({ ts, a: activeAt(g, f, ts), cause, rewrite, extra, model: m.model, from: prev.model, effort: prev.effort + '→' + d.effort, sub: f.isSub, ctx: total,
             prevIn: prev.in, prevCr: prev.cr, prevTotal: prev.total, curIn: t.in, curCw: t.cw, curCr: t.cr,
             cw1h: t.cw1h, cw5m: t.cw5m, shrink, grew, gapMin, prefixIntact, events });
-          if (s.breaks.length > 60) s.breaks.shift();
+          if (g.breaks.length > 60) g.breaks.shift();
         }
       }
-      f.prev = { total, in: t.in, cr: t.cr, model: m.model, ts, effort: d.effort };
-      if (!f.isSub) {
+      f.prev = { total, in: t.in, cr: t.cr, model: m.model, ts, effort: d.effort, ttlMin: ttlNow };
+      if (f.isSub) {
+        g.model = m.model; g.effort = d.effort || ''; g.ctx = total; g.lastStop = m.stop_reason || '';
+        g.series.push({ t: ts, a: activeAt(g, f, ts), ctx: total, cw: t.cw, cr: t.cr, m: m.model });   // 구성(c) 없음 (D-5)
+        if (g.series.length > 4000) g.series.splice(0, g.series.length - 4000);
+      } else {
         if (brokeNow) s.streak = 0; else s.streak++; if (s.streak > s.bestStreak) s.bestStreak = s.streak;
         s.model = m.model; s.effort = d.effort || ''; s.skill = d.attributionSkill || ''; s.ctx = total; s.lastStop = m.stop_reason || '';
         s.lastCallStart = (f.lastUserTs && f.lastUserTs <= ts) ? f.lastUserTs : ts; s.lastCallEnd = ts;
@@ -381,7 +418,12 @@ function handleRecord(f, d) {
 
 function readFile(fp) {
   let f = files.get(fp);
-  if (!f) { f = { fp, offset: 0, rest: '', sessionId: null, isSub: /[\\/]subagents[\\/]/.test(fp), seen: new Set(), uuidSeen: new Set(), prev: null, pending: [], lastUserTs: 0, comp: newComp(), toolChars: {}, toolNames: {}, results: [], edited: {}, callIdx: 0, askIds: new Set(), compactPost: null, compactPre: null, compactDur: null, compactDropped: null, compactTrigger: null, grp: null, actPrevTs: 0 }; files.set(fp, f); }
+  if (!f) { f = { fp, offset: 0, rest: '', sessionId: null, isSub: /[\\/]subagents[\\/]/.test(fp), seen: new Set(), uuidSeen: new Set(), prev: null, pending: [], lastUserTs: 0, comp: newComp(), toolChars: {}, toolNames: {}, results: [], edited: {}, callIdx: 0, askIds: new Set(), compactPost: null, compactPre: null, compactDur: null, compactDropped: null, compactTrigger: null, grp: null, actPrevTs: 0, agentId: null, meta: null }; files.set(fp, f);
+    if (f.isSub) f.agentId = path.basename(fp, '.jsonl').replace(/^agent-/, ''); }
+  if (f.isSub && !f.meta) {                                  // D-7: 없으면 다음 읽기에서 다시 시도
+    try { f.meta = JSON.parse(fs.readFileSync(fp.replace(/\.jsonl$/, '.meta.json'), 'utf8')); } catch { }
+    if (f.meta && f.sessionId) { const s = sessions.get(f.sessionId); const x = s && s.subs.get(f.agentId); if (x && !x.named) nameSub(x, f.meta); }
+  }
   let st; try { st = fs.statSync(fp); } catch { return; }
   if (st.size < f.offset) { f.offset = 0; f.rest = ''; f.seen = new Set(); f.uuidSeen = new Set(); f.prev = null; f.comp = newComp(); f.toolChars = {}; f.toolNames = {}; f.results = []; f.edited = {}; f.callIdx = 0; f.askIds = new Set(); f.compactPost = null; f.compactPre = null; f.compactDur = null; f.compactDropped = null; f.compactTrigger = null; f.grp = null; f.actPrevTs = 0; } // truncated/rewritten
   if (st.size === f.offset) return;
@@ -400,7 +442,7 @@ function scan(dir) {
 // ---------------- character state (see character-spec.md; first matching rule wins) ----------------
 function charState(s, now) {
   const alive = now - s.lastCallStart < s.ttlMin * 60e3; const left = s.lastCallStart + s.ttlMin * 60e3 - now;
-  const busy = s.lastStop === 'tool_use' && now - s.lastTs < 3 * 60e3;
+  const busy = (s.lastStop === 'tool_use' && now - s.lastTs < 3 * 60e3) || now - s.subActive < 3 * 60e3;
   if (now - s.lastAvoidableBreakTs < 3 * 60e3) return 'broke';
   if (s.pendingAsk && now - s.lastTs < 6 * 3600e3) return 'asking';
   if (busy) return 'working';
@@ -417,6 +459,14 @@ function snapshot() {
   const now = Date.now();
   const list = [...sessions.values()].filter(s => s.calls > 0).sort((a, b) => b.lastTs - a.lastTs).map(s => {
     const p = price(s.model);
+    const subs = [...s.subs.values()].sort((a, b) => a.firstTs - b.firstTs).map(x => ({
+      id: x.id, name: x.name || x.id, agentType: x.agentType, depth: x.depth,
+      model: x.model, effort: x.effort, firstTs: x.firstTs, lastTs: x.lastTs, lastStop: x.lastStop, lastTool: x.lastTool,
+      ctx: x.ctx, ttlMin: x.ttlMin, calls: x.calls, out: x.out, think: x.think, cacheRead: x.cacheRead, cacheWrite: x.cacheWrite,
+      cost: x.cost, compacts: x.compacts, breakCost: x.breakCost, tok: x.tok, activeMs: x.activeMs, byCause: x.byCause,
+      busy: now - x.lastTs < 3 * 60e3,
+    }));
+    const subTotal = subs.reduce((t, x) => ({ n: t.n + 1, cost: t.cost + x.cost, activeMs: t.activeMs + x.activeMs, breakCost: t.breakCost + x.breakCost }), { n: 0, cost: 0, activeMs: 0, breakCost: 0 });
     const continueThreshold = continueThresholdOf(s);
     const riskUsd = s.ctx * p.in * 2 / 1e6;
     // D-12. freshCost: 새 세션에서 바닥+다시읽기까지 다시 쓰는 비용. costDelta 양수면 새 세션이 싸다
@@ -435,14 +485,16 @@ function snapshot() {
     saved: s.saved, commits: s.commits, lateCalls: s.lateCalls, nightCalls: s.nightCalls, streak: s.streak, bestStreak: s.bestStreak,
     charState: charState(s, now), // after TTL expiry: continuing beats a new session iff ctx < system floor + regrowth (price/horizon independent)
     busy: s.lastStop === 'tool_use' && now - s.lastTs < 3 * 60e3, subActive: now - s.subActive < 3 * 60e3,
+    subs, subTotal,
   };});
   return { version, root: ROOT, now, calibration: CAL, folder: folderTotals(), sessions: list };
 }
-function detail(id) {
+function detail(id, agent) {
   const s = sessions.get(id); if (!s) return null;
-  const pts = s.series; const step = Math.max(1, Math.ceil(pts.length / 600));
+  const g = agent ? s.subs.get(agent) : s; if (!g) return null;
+  const pts = g.series; const step = Math.max(1, Math.ceil(pts.length / 600));
   const series = pts.filter((_, i) => i % step === 0 || i === pts.length - 1);
-  return { id, series, breaks: s.breaks.slice(-40), prompts: s.promptMarks };
+  return { id, agent: agent || null, series, breaks: g.breaks.slice(-40), prompts: agent ? [] : s.promptMarks };
 }
 
 // ---------------- server ----------------
@@ -469,7 +521,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=3600' }); return res.end(fs.readFileSync(file));
   }
   if (url.pathname === '/api/state') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(snapshot())); }
-  if (url.pathname === '/api/detail') { const d = detail(url.searchParams.get('id')); res.writeHead(d ? 200 : 404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(d || { error: 'no such session' })); }
+  if (url.pathname === '/api/detail') { const d = detail(url.searchParams.get('id'), url.searchParams.get('agent') || null); res.writeHead(d ? 200 : 404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(d || { error: 'no such session' })); }
   if (url.pathname === '/events') {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write('data: ' + JSON.stringify(snapshot()) + '\n\n'); clients.add(res); req.on('close', () => clients.delete(res)); return;
