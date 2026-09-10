@@ -23,6 +23,11 @@ const PRICE = {
 const price = (m) => PRICE[m] || { in: 5, out: 25, read: 0.1 };
 const PREFIX_EVENTS = new Set(['deferred_tools_delta', 'mcp_instructions_delta', 'agent_listing_delta', 'skill_listing', 'date_change', 'auto_mode', 'auto_mode_exit', 'nested_memory', 'invoked_skills']);
 const RESUME_RE = /continue from where you left off/i;
+// 사람이 친 것처럼 user 레코드에 실리지만 도구가 넣는 text 블록. 본문 첫머리의 태그 이름으로 가른다.
+// 클로드 코드가 태그 이름을 바꾸면 여기만 고친다 (v1.3.0 plan §1.4 · D-3).
+const NOISE_TAGS = ['task-notification', 'ide_opened_file', 'ide_selection'];
+const NOISE_RE = new RegExp('^\\s*<(' + NOISE_TAGS.join('|') + ')[\\s>]');
+const isNoise = b => !!b && b.type === 'text' && NOISE_RE.test(b.text || '');
 // 실측 근거(v0.1.2 do §3, 2026-08 아카이브 한 달): breakpoint_shift 5건의 rewrite 최대 18,708 · |rewrite-shrink| 최대 2,753,
 // effort_change 135건 중 124건이 |rewrite-shrink| ≤ 3,000이고 rewrite 최소는 25,140.
 // 두 원인을 실제로 가르는 것은 MAX_REWRITE 하나이고 여유는 위 5,140 · 아래 1,292다. 표본 5건이라 값은 유지한다.
@@ -277,14 +282,16 @@ function handleRecord(f, d) {
       const c = d.message && d.message.content;
       if (d.isMeta && RESUME_RE.test(markerText(c))) f.pending.push('resume');
       const askAnswer = !f.isSub && Array.isArray(c) && c.some(b => b.type === 'tool_result' && f.askIds.has(b.tool_use_id));
-      const human = askAnswer || (!d.isMeta && !f.isSub && (typeof c === 'string' || (Array.isArray(c) && c.every(b => b.type === 'text' || b.type === 'image'))));
+      const blocks = typeof c === 'string' ? [{ type: 'text', text: c }] : Array.isArray(c) ? c : null;
+      const own = blocks ? blocks.filter(b => !isNoise(b)) : null;          // 잡음 블록을 뺀 사람 몫
+      const human = askAnswer || (!d.isMeta && !f.isSub && !!own && own.length > 0 && own.every(b => b.type === 'text' || b.type === 'image'));
       if (human) { s.prompts++; if (ts) s.promptMarks.push({ t: ts, a: activeAt(s, f, ts) }); }
       if (askAnswer) s.pendingAsk = false;
       if (!f.isSub && c !== undefined) {
         if (d.isCompactSummary) { f.comp = newComp(); f.toolChars = {}; f.results = []; f.edited = {}; f.comp.summary += blockLen(c); }
-        else if (typeof c === 'string') { f.comp[d.isMeta ? 'reminders' : 'user'] += c.length; }
+        else if (typeof c === 'string') { f.comp[d.isMeta || NOISE_RE.test(c) ? 'reminders' : 'user'] += c.length; }
         else if (Array.isArray(c)) for (const b of c) {
-          if (b.type === 'text') f.comp[d.isMeta ? 'reminders' : 'user'] += (b.text || '').length;
+          if (b.type === 'text') f.comp[d.isMeta || isNoise(b) ? 'reminders' : 'user'] += (b.text || '').length;
           else if (b.type === 'image') f.comp.images += IMAGE_CHARS;
           else if (b.type === 'tool_result') { const n = blockLen(b.content); f.comp.toolResult += n; const tn = f.toolNames[b.tool_use_id] || { name: '?' }; f.toolChars[tn.name] = (f.toolChars[tn.name] || 0) + n; f.results.push({ idx: f.callIdx, name: tn.name, path: tn.path, chars: n }); }
         }
