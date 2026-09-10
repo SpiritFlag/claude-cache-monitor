@@ -9,7 +9,7 @@
 | 배치 | 이름 | 상태 | 회차 |
 |---|---|---|---|
 | B-1 | 사람 프롬프트에서 완료 알림 · IDE 이벤트 빼기 | 검증 완료 | R-1 |
-| B-2 | 서브에이전트를 집계 단위로 세우기 | 미착수 | |
+| B-2 | 서브에이전트를 집계 단위로 세우기 | 검증 완료 | R-2 |
 | B-3 | 캐시 만료 판정을 호출 단위로 | 미착수 | |
 | B-4 | 화면 — 서브 줄 · 서브 목록 · 대상별 카드 | 미착수 | |
 
@@ -25,6 +25,17 @@
 | 결과 | 검증 완료 |
 
 표본 대조: `data/fishing` 띄워 `curl /api/state`에서 `1904d418` 세션 `prompts === 4` 확인.
+
+### R-2 착수 · B-2
+
+| 항목 | 내용 |
+|---|---|
+| 한 일 | `s.subs` 슬롯 맵 · `subSlot` · `nameSub` · `targetOf` 추가. `activeAt` · `flushGroup` · `trackActive` · `folderTotals` · `handleRecord` · `readFile` · `charState` · `snapshot` · `detail` · 라우트를 g 기준으로 교체 |
+| 검증 | `node --test test/subagent-split.test.js test/active-time.test.js test/context-axis.test.js test/break-core.test.js test/bridge-cause.test.js` → 19 pass |
+| 문제 · 조치 | 없음 |
+| 결과 | 검증 완료 |
+
+표본 대조: `1904d418` 세션 `cost 13.22` · `activeMs 24.1분` · `subTotal.cost 40.40` · `subTotal.activeMs 92.6분` · `cost+subTotal.cost 53.62` · `subs.length 6`, 이름이 전부 `Audit issues batch …`로 시작. 서브 2개짜리 세션(`2cacf362…`) `subs.length === 2` 확인.
 
 ## 3. 결정
 
