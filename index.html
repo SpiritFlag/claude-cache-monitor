@@ -44,6 +44,15 @@
   .sess:hover { background:#1b1f28; } .sess.sel { background:#1f2532; border-left:3px solid var(--acc); padding-left:13px; }
   .sess .t { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sess .m { font:11px var(--mono); color:var(--dim); margin-top:3px; display:flex; gap:8px; }
+  .sess.sub { padding:6px 16px 8px 34px; border-top:0; }
+  .sess.sub.sel { padding-left:31px; }
+  .sess.sub .t { font-weight:500; font-size:12px; color:var(--dim); }
+  .sess.sel + .sess.sub, .sess.sub.sel { }   /* 비워 둔다. 육안 확인에서 사용자 값이 오면 여기서 잡는다 */
+  .subrows { flex:1; overflow:auto; display:flex; flex-direction:column; gap:2px; min-height:0; scrollbar-width:none; }
+  .subrow { padding:6px 8px; border-radius:6px; cursor:pointer; }
+  .subrow:hover { background:#1b1f28; } .subrow.sel { background:#1f2532; }
+  .subrow .t { font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .subrow .m { font:11px var(--mono); color:var(--dim); margin-top:2px; display:flex; gap:8px; }
   .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#444; margin-right:6px; vertical-align:middle; }
   .dot.live { background:var(--ok); } .dot.busy { background:var(--acc); animation:pulse 1s infinite; } .dot.dead { background:#444; }
   @keyframes pulse { 50% { opacity:.3; } }
@@ -170,16 +179,20 @@ const dayKey = ts => new Date(ts + DAY_SHIFT).toISOString().slice(0, 10);
 const hrs = ms => { const h = ms / 3600e3; return h >= 1 ? h.toFixed(1) + 'h' : Math.round(ms / 60e3) + 'm'; };
 const perHrNum = (cost, ms) => ms > 0 ? cost / (ms / 3600e3) : null;
 
-let state = null, selected = null, detailCache = {}, clockSkew = 0;
+let state = null, sel = { id: null, agent: null }, detailCache = {}, clockSkew = 0;
+const detailKey = () => sel.id + '|' + (sel.agent || '');
+function curSession() { return state ? state.sessions.find(x => x.id === sel.id) : null; }
+// 화면이 가리키는 대상. 서브가 골라졌는데 스냅샷에서 사라졌으면 메인으로 되돌린다.
+function curTarget() { const s = curSession(); if (!s) return null; if (!sel.agent) return s; const x = s.subs.find(y => y.id === sel.agent); if (!x) sel.agent = null; return x || s; }
 
 const es = new EventSource('/events');
 es.onmessage = e => {
   const snap = JSON.parse(e.data);
   detectTabTransitions(snap);                       // state를 갈아 끼우기 전
   state = snap; clockSkew = state.now - Date.now();
-  if (!selected && state.sessions.length) selected = state.sessions[0].id;
+  if (!sel.id && state.sessions.length) sel.id = state.sessions[0].id;
   if (tabBlink) tabBlink.phase ^= 1;                // 스냅샷 도착도 깜빡임의 박자다 (D-7 · R-2)
-  renderList(); loadDetail(selected, true); updateTab();
+  renderList(); loadDetail(true); updateTab();
 };
 
 function status(s) { const now = Date.now()+clockSkew; if (s.busy || s.subActive) return 'busy'; if (now - s.lastCallEnd < s.ttlMin*60e3) return 'live'; return 'dead'; }
@@ -187,13 +200,21 @@ function status(s) { const now = Date.now()+clockSkew; if (s.busy || s.subActive
 function renderList() {
   $('#root').textContent = state.root;
   $('#list').innerHTML = state.sessions.map(s => `
-    <div class="sess ${s.id===selected?'sel':''}" data-id="${s.id}">
+    <div class="sess ${s.id===sel.id && !sel.agent ? 'sel' : ''}" data-id="${s.id}">
       <div class="t"><span class="dot ${status(s)}"></span>${esc(s.title)}</div>
-      <div class="m"><span>${short(s.model)}</span><span>${fmtTok(s.ctx)}</span><span>${usd(s.cost)}</span><span class="ago" data-ts="${s.lastTs}">${ago(Date.now()+clockSkew-s.lastTs)}</span></div>
-    </div>`).join('');
-  document.querySelectorAll('.sess').forEach(el => el.onclick = () => { selected = el.dataset.id; renderList(); loadDetail(selected, true); });
-  const sel = state.sessions.find(x => x.id === selected);
-  $('#habits').innerHTML = sel ? `<h1>캐시를 깨는 나쁜 습관</h1>${habitsCard(sel)}` : '';
+      <div class="m"><span>${short(s.model)}</span><span>${fmtTok(s.ctx)}</span><span>${usd(s.cost)}</span><span title="활성 시간">${hrs(s.activeMs)}</span></div>
+    </div>` + (s.subs.length ? `
+    <div class="sess sub ${s.id===sel.id && sel.agent ? 'sel' : ''}" data-id="${s.id}" data-sub="1">
+      <div class="t"><span class="dot ${s.subActive ? 'busy' : 'dead'}"></span>서브에이전트 ${s.subTotal.n}</div>
+      <div class="m"><span>${usd(s.subTotal.cost)}</span><span title="서브 활성 시간 합">${hrs(s.subTotal.activeMs)}</span></div>
+    </div>` : '')).join('');
+  document.querySelectorAll('.sess').forEach(el => el.onclick = () => {
+    const s = state.sessions.find(x => x.id === el.dataset.id);
+    sel = { id: el.dataset.id, agent: el.dataset.sub ? (s.subs.find(y => y.id === sel.agent) ? sel.agent : s.subs[0].id) : null };   // D-4: 서브 줄은 첫 서브. 같은 세션의 서브를 이미 보고 있었으면 유지
+    renderList(); loadDetail(true);
+  });
+  const g = curTarget(), sc = curSession();
+  $('#habits').innerHTML = g ? `<h1>캐시를 깨는 나쁜 습관</h1>${habitsCard(g, sc)}` : '';
 }
 // ---- character card: state image + line (states defined in character-spec.md)
 const LINES = { broke: '아야… 다시 다 읽었어요', asking: '형, 어떻게 할까요?', working: '작업 중…', full: '배가 불러요…', sleepy: '졸려요… 곧 잊어버릴 것 같아요', asleep: '자고 있어요. 깨워도 돼요', amnesia: '깨우면 다 까먹은 상태예요', idle: '대기 중' };
@@ -204,6 +225,36 @@ function charCard(s) {
     + `<img src="/img/${st}.png" alt="${st}"></div>`
     + `<div class="bubble down">${short(s.model)}</div></div>`;
 }
+
+function ttlCard(s) {
+  return `<div class="card ttl"><h2>Cache TTL (${s.ttlMin}m)</h2>
+    <div class="ttl-mid">
+      <div class="ring"><svg width="160" height="160" viewBox="0 0 160 160"><circle cx="80" cy="80" r="70" fill="none" stroke="#232836" stroke-width="11"/><circle id="arc" cx="80" cy="80" r="70" fill="none" stroke="var(--ok)" stroke-width="11" stroke-linecap="round" stroke-dasharray="439.8" stroke-dashoffset="0"/></svg>
+      <div class="num"><div class="big" id="ttl">--:--</div><div class="sub" id="ttlsub"></div></div></div>
+      <div id="ttlnote"></div>
+    </div>
+    <div id="ttlwarn"></div>
+  </div>`;
+}
+
+function subListCard(s) {
+  return `<div class="card"><h2>Subagents (${s.subTotal.n})</h2><div class="subrows">`
+    + s.subs.map(x => `<div class="subrow ${x.id === sel.agent ? 'sel' : ''}" data-agent="${x.id}" title="${esc(x.agentType)} · depth ${x.depth}">
+        <div class="t"><span class="dot ${x.busy ? 'busy' : 'dead'}"></span>${esc(x.name)}</div>
+        <div class="m"><span>${fmtTok(x.ctx)}</span><span>${usd(x.cost)}</span><span>${hrs(x.activeMs)}</span></div>
+      </div>`).join('')
+    + `</div></div>`;
+}
+
+function stateChips(s, g) {
+  const chip = (k, v) => `<span class="chip"><b>${k}</b>${v}</span>`;
+  const span = chip('span', `${new Date(g.firstTs).toLocaleString()} → ${new Date(g.lastTs).toLocaleString()}`);
+  if (g !== s) return chip('model', short(g.model)) + chip('effort', g.effort || '-') + chip('agent', esc(g.agentType || '-')) + chip('depth', g.depth)
+    + chip('last tool', g.lastTool || '-') + chip('stop', g.lastStop || '-') + chip('calls', g.calls) + span;
+  return chip('model', short(s.model)) + chip('effort', s.effort || '-') + chip('skill', s.skill || '-')
+    + chip('last tool', s.lastTool || '-') + chip('stop', s.lastStop || '-') + chip('prompts', s.prompts)
+    + chip('asks', s.asks) + chip('entry', s.entry || '-') + chip('cwd', esc(s.cwd || '')) + span;
+}
 // 오늘(이 세션이 속한 하루, KST 05시 경계, 폴더 전체 집계) 버킷 — 연비 위젯과 누적 총액 줄이 함께 쓴다.
 function todayBucket(s) {
   const fo = state.folder; if (!fo) return { activeMs: 0, cost: 0 };
@@ -212,14 +263,12 @@ function todayBucket(s) {
 // Cost 카드의 연비 3줄: 이 세션 · 오늘(이 세션이 속한 하루, 폴더 전체 집계) · 이 기기(폴더 전체 누적).
 // 시간당 비용을 $0~100/h 척도의 가로 트랙 위에 원으로 찍고, 시간당·분당 값과 활성시간은 트랙 오른쪽에 적는다.
 const FUEL_SCALE = 100;
-function fuelCells(s) {
+function fuelCells(g, s) {
   const fo = state.folder; if (!fo) return '';
   const today = todayBucket(s);
-  const rows = [
-    ['이 세션', perHrNum(s.cost, s.activeMs), s.activeMs],
-    ['오늘', perHrNum(today.cost, today.activeMs), today.activeMs],
-    ['이 기기', perHrNum(fo.cost, fo.activeMs), fo.activeMs],
-  ];
+  const rows = g !== s
+    ? [['이 서브', perHrNum(g.cost, g.activeMs), g.activeMs], ['서브 소계', perHrNum(s.subTotal.cost, s.subTotal.activeMs), s.subTotal.activeMs], ['오늘', perHrNum(today.cost, today.activeMs), today.activeMs], ['이 기기', perHrNum(fo.cost, fo.activeMs), fo.activeMs]]
+    : [['이 세션', perHrNum(s.cost, s.activeMs), s.activeMs], ['오늘', perHrNum(today.cost, today.activeMs), today.activeMs], ['이 기기', perHrNum(fo.cost, fo.activeMs), fo.activeMs]];
   return `<div class="fuel" title="시간당·분당 비용 · $0~${FUEL_SCALE}/h 척도 · 활성시간 = 모델이 실제로 돌던 시간만 합산, 대기·생각 시간 제외. 하루 경계는 KST 05시">`
     + `<div class="fuel-h">활성 시간 대비 COST</div>`
     + rows.map(([label, perHr, ms]) => {
@@ -234,55 +283,51 @@ function fuelCells(s) {
 }
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
-async function loadDetail(id, force) {
-  if (!id) return; if (force || !detailCache[id]) { const r = await fetch('/api/detail?id='+encodeURIComponent(id)); detailCache[id] = await r.json(); }
+async function loadDetail(force) {
+  if (!sel.id) return; const k = detailKey();
+  if (force || !detailCache[k]) { const r = await fetch('/api/detail?id=' + encodeURIComponent(sel.id) + (sel.agent ? '&agent=' + encodeURIComponent(sel.agent) : '')); detailCache[k] = await r.json(); }
   renderMain();
 }
 
 function renderMain() {
-  const s = state.sessions.find(x => x.id === selected); if (!s) return;
-  const d = detailCache[s.id] || { series: [], breaks: [] };
-  const ttlMs = s.ttlMin*60e3;
+  const s = curSession(), g = curTarget(); if (!s || !g) return;
+  const isSub = g !== s;
+  const d = detailCache[detailKey()] || { series: [], breaks: [], prompts: [] };
   $('#main').innerHTML = `
     <div class="top">
-      <div class="card ttl"><h2>Cache TTL (${s.ttlMin}m)</h2>
-        <div class="ttl-mid">
-          <div class="ring"><svg width="160" height="160" viewBox="0 0 160 160"><circle cx="80" cy="80" r="70" fill="none" stroke="#232836" stroke-width="11"/><circle id="arc" cx="80" cy="80" r="70" fill="none" stroke="var(--ok)" stroke-width="11" stroke-linecap="round" stroke-dasharray="439.8" stroke-dashoffset="0"/></svg>
-          <div class="num"><div class="big" id="ttl">--:--</div><div class="sub" id="ttlsub"></div></div></div>
-          <div id="ttlnote"></div>
-        </div>
-        <div id="ttlwarn"></div>
-      </div>
+      ${isSub ? subListCard(s) : ttlCard(s)}
       <div class="card">
         <div class="ctx-top">
           <h2>Context</h2>
-          <div class="ctx-head"><div class="big">${fmtTok(s.ctx)}</div><div class="sub">of 1M window · cacheR ${fmtTok(s.cacheRead)} · cacheW ${fmtTok(s.cacheWrite)} · compacts ${s.compacts}</div></div>
+          <div class="ctx-head"><div class="big">${fmtTok(g.ctx)}</div><div class="sub">of 1M window · cacheR ${fmtTok(g.cacheRead)} · cacheW ${fmtTok(g.cacheWrite)} · compacts ${g.compacts}</div></div>
         </div>
         <div class="ctx-mid">
-          ${ctxNote(s)}
-          <div class="ctxbar">${ctxBarSegs(s)}</div>
-          ${ctxLegend(s)}
+          ${ctxNote(g)}
+          <div class="ctxbar">${ctxBarSegs(g)}</div>
+          ${ctxLegend(g)}
         </div>
-        ${adviceLine(s)}
+        ${adviceLine(g)}
       </div>
       <div class="card cost-card">
         <div class="cost-mid">
           <div class="cost-lcol">
             <h2>Cost (API 환산)</h2>
             <div class="cost-left">
-              <div class="cost-k"><span>이 세션</span><div class="big">${usd(s.cost)}</div></div>
+              <div class="cost-k"><span>${isSub ? '이 서브' : '이 세션'}</span><div class="big">${usd(g.cost)}</div></div>
               <div class="vsep"></div>
-              <div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>
+              ${isSub
+                ? `<div class="cost-k" title="이 세션의 서브에이전트 ${s.subTotal.n}개 합"><span>서브 소계</span><div class="mid">${usd(s.subTotal.cost)}</div></div>`
+                : `<div class="cost-k" title="이 폴더의 오늘(KST 05시 경계) 전체 세션 누적"><span>오늘 누적</span><div class="mid">${usd(todayBucket(s).cost)}</div></div>`}
             </div>
           </div>
           <div class="cost-right">
-            <div class="cost-k" style="${s.compacts > 0 ? '' : 'visibility:hidden'}"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>
-            <div class="cost-k"><div class="cost-k-h"><span>캐시 깨짐 손실</span><small>${sumCauses(s.byCause, LOSS_CAUSES).n}건</small></div><div class="mid bad">${usd(s.breakCost)} <small>잃었어요</small></div></div>
+            <div class="cost-k" style="${(!isSub && s.compacts > 0) ? '' : 'visibility:hidden'}"><div class="cost-k-h"><span>압축 절약</span><small>${s.compacts}건 · ${dur(s.compactMs)} 걸렸어요</small></div><div class="mid ok">${usd(s.compactSaved)} <small>아꼈어요</small></div></div>
+            <div class="cost-k"><div class="cost-k-h"><span>캐시 깨짐 손실</span><small>${sumCauses(g.byCause, LOSS_CAUSES).n}건</small></div><div class="mid bad">${usd(g.breakCost)} <small>잃었어요</small></div></div>
           </div>
         </div>
         <div class="cost-foot">
           ${principleLine()}
-          ${fuelCells(s)}
+          ${fuelCells(g, s)}
         </div>
       </div>
       <div class="card">${charCard(s)}</div>
@@ -290,13 +335,9 @@ function renderMain() {
     <div class="card"><h2>Context over time (x축 = 활성시간 누적 · 유휴 잘라냄 — 톱니 = 캐시 재작성, 절벽 = 압축)</h2><div class="chartbox"><canvas id="chart"></canvas><div class="tip" id="charttip" hidden></div></div><div class="legend" id="legend"></div></div>
     <div class="card"><h2>Cache breaks (최근)</h2>${breakTable(d.breaks)}</div>
     <div class="card strip"><h2>State</h2>
-      <div class="chips">
-        <span class="chip"><b>model</b>${short(s.model)}</span><span class="chip"><b>effort</b>${s.effort||'-'}</span><span class="chip"><b>skill</b>${s.skill||'-'}</span>
-        <span class="chip"><b>last tool</b>${s.lastTool||'-'}</span><span class="chip"><b>stop</b>${s.lastStop||'-'}</span><span class="chip"><b>prompts</b>${s.prompts}</span>
-        <span class="chip"><b>asks</b>${s.asks}</span><span class="chip"><b>entry</b>${s.entry||'-'}</span><span class="chip"><b>cwd</b>${esc(s.cwd||'')}</span>
-        <span class="chip"><b>span</b>${new Date(s.firstTs).toLocaleString()} → ${new Date(s.lastTs).toLocaleString()}</span>
-      </div>
+      <div class="chips">${stateChips(s, g)}</div>
     </div>`;
+  document.querySelectorAll('.subrow').forEach(el => el.onclick = () => { sel.agent = el.dataset.agent; renderList(); loadDetail(true); });
   const cv = $('#chart');
   cv.onmousemove = e => {
     const rect = cv.getBoundingClientRect(); const mx = e.clientX - rect.left, my = e.clientY - rect.top;
@@ -373,11 +414,13 @@ const HABITS = CAUSE_GROUPS.filter(g => !g.free).map(g => [g.label, g.causes]); 
 const FREE_CAUSES = CAUSE_GROUPS.filter(g => g.free).flatMap(g => g.causes);      // habitsCard의 free 줄
 const LOSS_CAUSES = CAUSE_GROUPS.filter(g => !g.free).flatMap(g => g.causes);
 function sumCauses(byCause, causes) { const r = { n: 0, extra: 0, rewrite: 0 }; for (const c of causes) { const v = byCause && byCause[c]; if (v) { r.n += v.n; r.extra += v.extra; r.rewrite += v.rewrite; } } return r; }
-function habitsCard(s) {
-  const all = {}; for (const x of state.sessions) for (const [c, v] of Object.entries(x.byCause || {})) { const a = all[c] = all[c] || { n: 0, extra: 0, rewrite: 0 }; a.n += v.n; a.extra += v.extra; a.rewrite += v.rewrite; }
-  const rows = HABITS.map(([label, causes], i) => ({ i, label, mine: sumCauses(s.byCause, causes), folder: sumCauses(all, causes) })).sort((a, b) => b.mine.extra - a.mine.extra || b.folder.extra - a.folder.extra);
-  const free = sumCauses(s.byCause, FREE_CAUSES);
-  return `<table class="habits"><tr><th></th><th>이 세션</th><th>폴더 전체</th></tr>` + rows.map((r, k) => `<tr class="${r.mine.n ? '' : 'dim'}"><td>${k + 1}. ${r.label}</td><td>${r.mine.n ? r.mine.n + '건 · <b>' + usd(r.mine.extra) + '</b>' : '<span class="z">0</span>'}</td><td>${r.folder.n ? r.folder.n + '건 · ' + usd(r.folder.extra) : '<span class="z">0</span>'}</td></tr>`).join('') + `</table>` +
+function habitsCard(g, s) {
+  const all = {};
+  const add = bc => { for (const [c, v] of Object.entries(bc || {})) { const a = all[c] = all[c] || { n: 0, extra: 0, rewrite: 0 }; a.n += v.n; a.extra += v.extra; a.rewrite += v.rewrite; } };
+  for (const x of state.sessions) { add(x.byCause); for (const y of x.subs) add(y.byCause); }
+  const rows = HABITS.map(([label, causes], i) => ({ i, label, mine: sumCauses(g.byCause, causes), folder: sumCauses(all, causes) })).sort((a, b) => b.mine.extra - a.mine.extra || b.folder.extra - a.folder.extra);
+  const free = sumCauses(g.byCause, FREE_CAUSES);
+  return `<table class="habits"><tr><th></th><th>${g !== s ? '이 서브' : '이 세션'}</th><th>폴더 전체</th></tr>` + rows.map((r, k) => `<tr class="${r.mine.n ? '' : 'dim'}"><td>${k + 1}. ${r.label}</td><td>${r.mine.n ? r.mine.n + '건 · <b>' + usd(r.mine.extra) + '</b>' : '<span class="z">0</span>'}</td><td>${r.folder.n ? r.folder.n + '건 · ' + usd(r.folder.extra) : '<span class="z">0</span>'}</td></tr>`).join('') + `</table>` +
     `<div class="sub" style="margin-top:8px">압축·브레이크포인트 이동(정상) ${free.n}건 ${usd(free.extra)}은 제외 · 비용 = 다시 쓴 토큰 × (쓰기 − 읽기 단가)</div>`;
 }
 // D-3. 모델 전환 사다리가 있던 자리 — "세션 안에서 모델을 바꾸지 않는다"는 원칙 한 줄로 대신한다
@@ -389,7 +432,7 @@ function adviceLine(s) {
   return `<div class="advice ${a.emphasize ? 'strong' : 'dim'}"><span>폐기물 <b>${fmtTok(a.dead)}</b> · 컨텍스트의 ${Math.round(100 * a.deadPct)}%</span><button onclick="openAdvice()">상세</button></div>`;
 }
 function openAdvice() {
-  const s = state.sessions.find(x => x.id === selected); const a = s && s.advice; if (!a) return;
+  const s = curSession(); const a = s && s.advice; if (!a) return;
   const pct = n => Math.round(100 * n / (s.ctx || 1)) + '%';
   $('#modal').innerHTML = `<div class="box">
     <div class="mh"><span>압축 근거 · ${esc(s.title)}</span><button onclick="closeAdvice()">✕</button></div>
@@ -463,7 +506,7 @@ function drawChart(series, breaks, prompts) {
   ctx.beginPath();
   pts.forEach((p, i) => { const x = X(p.a), y = Y(p.ctx); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
   ctx.stroke();
-  for (const b of breaks) if (!b.sub) { ctx.strokeStyle = causeColor(b.cause); ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(CX(b.a), T); ctx.lineTo(CX(b.a), H-B); ctx.stroke(); ctx.setLineDash([]); }
+  for (const b of breaks) { ctx.strokeStyle = causeColor(b.cause); ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(CX(b.a), T); ctx.lineTo(CX(b.a), H-B); ctx.stroke(); ctx.setLineDash([]); }
   // 프롬프트 마커 (D-12 · D-14): 히트 테스트가 쓸 좌표를 그린 쪽이 남긴다
   chartMarks = { prompts: [] };
   for (const p of (prompts || [])) {
@@ -474,7 +517,7 @@ function drawChart(series, breaks, prompts) {
   }
   // 범례: 구성 8층(hasComp일 때만) -> 이 세션 breaks에 실제로 나온 원인 묶음(.dash, D-10) -> 프롬프트 마커(.dot)
   const seenGroups = []; const seenKeys = new Set();
-  for (const b of breaks) if (!b.sub) { const g = causeGroup(b.cause); if (!seenKeys.has(g.key)) { seenKeys.add(g.key); seenGroups.push(g); } }
+  for (const b of breaks) { const g = causeGroup(b.cause); if (!seenKeys.has(g.key)) { seenKeys.add(g.key); seenGroups.push(g); } }
   const lg = $('#legend');
   if (lg) lg.innerHTML =
     (hasComp ? COMP.map(([k, label, c]) => `<span class="li"><b style="background:${c}"></b>${label}</span>`).join('') : '') +
@@ -490,8 +533,8 @@ function resumeBox(s) {
 }
 function tick() {
   if (tabBlink) tabBlink.phase ^= 1;
-  updateTab();                                          // state·selected·#ttl 검사보다 앞 (D-17)
-  if (!state) return; const s = state.sessions.find(x => x.id === selected); if (!s) return;
+  updateTab();                                          // state·sel·#ttl 검사보다 앞 (D-17)
+  if (!state) return; const s = curSession(); if (!s) return;
   const now = Date.now()+clockSkew; const ttlMs = s.ttlMin*60e3; const left = s.lastCallStart + ttlMs - now;
   const el = $('#ttl'), arc = $('#arc'), sub = $('#ttlsub'), note = $('#ttlnote'), warn = $('#ttlwarn'); if (!el) return;
   if (left > 0) {
@@ -507,7 +550,6 @@ function tick() {
     note.innerHTML = '';
     warn.innerHTML = resumeBox(s);
   }
-  document.querySelectorAll('.ago').forEach(a => a.textContent = ago(now - +a.dataset.ts));
 }
 setInterval(tick, 1000);
 
@@ -518,16 +560,16 @@ $('#navbtn').onclick = () => {
   const on = !$('#app').classList.contains('nav-collapsed');
   applyNav(on);
   try { localStorage.setItem(NAVKEY, on ? '1' : '0'); } catch (e) { }
-  requestAnimationFrame(() => { const d = detailCache[selected]; if (d) drawChart(d.series, d.breaks, d.prompts); }); // the canvas got wider or narrower
+  requestAnimationFrame(() => { const d = detailCache[detailKey()]; if (d) drawChart(d.series, d.breaks, d.prompts); }); // the canvas got wider or narrower
 };
 try { applyNav(localStorage.getItem(NAVKEY) === '1'); } catch (e) { }
-let rsz = null; window.addEventListener('resize', () => { clearTimeout(rsz); rsz = setTimeout(() => { const d = detailCache[selected]; if (d) drawChart(d.series, d.breaks, d.prompts); }, 100); });
+let rsz = null; window.addEventListener('resize', () => { clearTimeout(rsz); rsz = setTimeout(() => { const d = detailCache[detailKey()]; if (d) drawChart(d.series, d.breaks, d.prompts); }, 100); });
 
 window.addEventListener('focus', stopBlink);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) stopBlink(); });
 
 // ---- browser tab: favicon · title · blink · desktop notification
-// 탭은 화면에서 고른 세션(selected)이 아니라 가장 최근 활동 세션(sessions[0])을 따른다 (D-2)
+// 탭은 화면에서 고른 세션이 아니라 가장 최근 활동 세션(sessions[0])을 따른다 (D-2)
 const FAV_SIZE = 32;                                   // 캔버스 한 변. 탭 16px의 2배 (D-9)
 const FAV_CROP = { zoom: 1, cx: 0.5, cy: 0.5 };        // R-1 우회 손잡이. zoom>1이면 원본의 그만큼만 잘라 채운다 (D-11)
 const BADGE_STATES = new Set(['asking', 'broke']);     // (D-12)
