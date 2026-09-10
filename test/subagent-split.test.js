@@ -76,3 +76,25 @@ test('sub-split: 시리즈 x축은 서브에서도 단조다 (scope §4)', () =>
   const d = detail(s.id, 'x1');
   for (let i = 1; i < d.series.length; i++) assert.ok(d.series[i].a >= d.series[i - 1].a);
 });
+
+test('sub-split: 메인→서브, 서브→메인 어느 순서로 읽어도 서브 깨짐은 ttl_expiry이고 s.ttlMin은 60 (SC-5)', () => {
+  for (const order of [[MAIN, X1, X2], [X1, X2, MAIN]]) {
+    const { snapshot } = replay(order);
+    const s = snapshot.sessions[0];
+    assert.equal(s.ttlMin, 60);
+    assert.equal(s.subs[0].ttlMin, 5);
+    assert.equal(s.subs[0].byCause.ttl_expiry.n, 1);
+    assert.equal(s.byCause.ttl_expiry, undefined);
+  }
+});
+
+test('sub-split: 서브 깨짐 레코드의 gapMin이 5분을 넘고 60분을 안 넘는다 (SC-5)', () => {
+  const { s } = runFixtureDir('sub-split');
+  const b = detail(s.id, 'x1').breaks[0];
+  assert.equal(b.cause, 'ttl_expiry');
+  assert.ok(b.gapMin > 5);
+  assert.ok(b.gapMin < 60);
+  assert.equal(b.rewrite, 9000);
+  assert.equal(b.cw5m, 9000);
+  assert.equal(b.cw1h, 0);
+});

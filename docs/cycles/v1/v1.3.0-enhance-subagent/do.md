@@ -10,7 +10,7 @@
 |---|---|---|---|
 | B-1 | 사람 프롬프트에서 완료 알림 · IDE 이벤트 빼기 | 검증 완료 | R-1 |
 | B-2 | 서브에이전트를 집계 단위로 세우기 | 검증 완료 | R-2 |
-| B-3 | 캐시 만료 판정을 호출 단위로 | 미착수 | |
+| B-3 | 캐시 만료 판정을 호출 단위로 | 검증 완료 | R-3 |
 | B-4 | 화면 — 서브 줄 · 서브 목록 · 대상별 카드 | 미착수 | |
 
 ## 2. 진행
@@ -36,6 +36,17 @@
 | 결과 | 검증 완료 |
 
 표본 대조: `1904d418` 세션 `cost 13.22` · `activeMs 24.1분` · `subTotal.cost 40.40` · `subTotal.activeMs 92.6분` · `cost+subTotal.cost 53.62` · `subs.length 6`, 이름이 전부 `Audit issues batch …`로 시작. 서브 2개짜리 세션(`2cacf362…`) `subs.length === 2` 확인.
+
+### R-3 착수 · B-3
+
+| 항목 | 내용 |
+|---|---|
+| 한 일 | TTL 갱신을 `f.prev.ttlMin`(D-6) 기준으로, 만료 조건을 `prev.ttlMin` 기준으로 교체. `f.prev`에 `ttlMin` 필드 추가 |
+| 검증 | `node --test test/subagent-split.test.js test/break-core.test.js test/shift-cause.test.js test/resume-cause.test.js test/bridge-cause.test.js test/breaks-cap.test.js` → 19 pass |
+| 문제 · 조치 | 없음 |
+| 결과 | 검증 완료 |
+
+표본 대조: `1904d418` 세션 `byCause === {}` · `ttlMin === 60` · `subs[*].byCause.ttl_expiry.n` 합 6. `5f111656` 세션은 B-2 커밋(`12c9c8c`) 서버와 대조해 `byCause.unexplained.n`이 1로 그대로다 — 그 건은 설계 문서가 이미 밝힌 대로 이슈의 판단 재료이지 이 사이클의 기준이 아니다.
 
 ## 3. 결정
 

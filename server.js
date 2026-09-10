@@ -349,7 +349,8 @@ function handleRecord(f, d) {
       if (ts) { const h = (new Date(ts).getUTCHours() + 9) % 24; if (h >= 19 || h < 6) s.lateCalls++; if (h < 6) s.nightCalls++; }
       let brokeNow = false;
       if (f.isSub) { s.subCalls++; s.subActive = ts; g.calls++; } else { s.calls++; }
-      if (!f.isSub) { if (t.cw1h > 0) s.ttlMin = 60; else if (t.cw5m > 0 && t.cw1h === 0 && s.calls <= 1) s.ttlMin = 5; }
+      const ttlNow = t.cw1h > 0 ? 60 : t.cw5m > 0 ? 5 : (f.prev ? f.prev.ttlMin : s.ttlMin);   // D-6: 이 호출이 캐시에 쓴 TTL. 안 썼으면 직전을 잇는다
+      if (!f.isSub) { if (t.cw1h > 0) s.ttlMin = 60; else if (t.cw5m > 0 && t.cw1h === 0 && s.calls <= 1) s.ttlMin = 5; } else g.ttlMin = ttlNow;
       const prev = f.prev; const events = f.pending; f.pending = [];
       if (prev) {
         // tokens that should have been cache hits, capped at what was actually written this call (compaction shrinks the context)
@@ -363,7 +364,7 @@ function handleRecord(f, d) {
           let cause;
           if (m.model !== prev.model) cause = 'model_switch';
           else if (events.includes('compact')) cause = 'compact';
-          else if (gapMin > (s.ttlMin === 60 ? 60 : 5)) cause = 'ttl_expiry';
+          else if (gapMin > (prev.ttlMin === 60 ? 60 : 5)) cause = 'ttl_expiry';
           else if (events.includes('resume')) cause = 'session_resume';
           else if (shrink > 0 && Math.abs(rewrite - shrink) <= BP_SHRINK_SLACK && rewrite < BP_MAX_REWRITE) cause = 'breakpoint_shift';
           else if (d.effort !== prev.effort) cause = 'effort_change';
@@ -381,7 +382,7 @@ function handleRecord(f, d) {
           if (g.breaks.length > 60) g.breaks.shift();
         }
       }
-      f.prev = { total, in: t.in, cr: t.cr, model: m.model, ts, effort: d.effort };
+      f.prev = { total, in: t.in, cr: t.cr, model: m.model, ts, effort: d.effort, ttlMin: ttlNow };
       if (f.isSub) {
         g.model = m.model; g.effort = d.effort || ''; g.ctx = total; g.lastStop = m.stop_reason || '';
         g.series.push({ t: ts, a: activeAt(g, f, ts), ctx: total, cw: t.cw, cr: t.cr, m: m.model });   // 구성(c) 없음 (D-5)
